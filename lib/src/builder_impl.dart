@@ -12,21 +12,22 @@ import 'emitter.dart';
 /// Builder triggered once per consuming package (`$package$`).
 ///
 /// Pipeline:
-///   1. Read options from build.yaml (via constructor).
-///   2. Shell out to Deno with the bundled `tool/ts_export.ts` script,
-///      passing the user's TS entry path + export name.
+///   1. Read options from build.yaml (parsed into [TsSchemaConfig]).
+///   2. For each configured schema: shell out to Deno with the bundled
+///      `tool/ts_export.ts` script, passing the TS entry path, the export
+///      name, and the template (so the Deno side can validate the shape).
 ///   3. Parse the resulting JSON, run it through the selected emitter.
-///   4. Write the Dart source to `lib/ts_schema.g.dart` in the consumer.
-///   5. Format the output via `dart format` so the result plays nicely
-///      with CI diffs and IDEs.
+///   4. Write the Dart source to the configured output path.
+///   5. `dart format --page-width 120` every output so downstream diffs
+///      stay clean across developer runs.
 class TsSchemaBuilder implements Builder {
   TsSchemaBuilder(this.config);
 
   final TsSchemaConfig config;
 
   @override
-  Map<String, List<String>> get buildExtensions => const {
-        r'$package$': ['lib/ts_schema.g.dart'],
+  Map<String, List<String>> get buildExtensions => {
+        r'$package$': config.schemas.map((s) => s.output).toList(),
       };
 
   @override
@@ -40,43 +41,59 @@ class TsSchemaBuilder implements Builder {
       workingDirectory: pkgDir,
     );
 
+    for (final entry in config.schemas) {
+      await _buildOne(
+        buildStep: buildStep,
+        entry: entry,
+        runner: runner,
+        pkgDir: pkgDir,
+      );
+    }
+  }
+
+  Future<void> _buildOne({
+    required BuildStep buildStep,
+    required SchemaEntry entry,
+    required DenoRunner runner,
+    required String pkgDir,
+  }) async {
     final schema = await runner.evaluate(
-      tsPath: config.source,
-      exportName: config.export,
+      tsPath: entry.source,
+      exportName: entry.export,
+      template: entry.template,
     );
 
-    final source = _emit(schema);
+    final source = _emit(schema, entry);
 
-    final output = AssetId(
-      buildStep.inputId.package,
-      'lib/ts_schema.g.dart',
-    );
+    final output = AssetId(buildStep.inputId.package, entry.output);
     await buildStep.writeAsString(output, source);
 
-    // Format after writing so downstream diffs stay clean.
-    await _dartFormat(p.join(pkgDir, 'lib/ts_schema.g.dart'));
+    // Format after writing. The `dart format` subprocess takes the absolute
+    // on-disk path — resolve it relative to the package root.
+    await _dartFormat(p.join(pkgDir, entry.output));
 
     log.info(
-      'ts_schema_codegen: wrote ${source.length} bytes from ${config.source} '
-      '(export=${config.export}, template=${config.template}).',
+      'ts_schema_codegen: wrote ${source.length} bytes to ${entry.output} '
+      'from ${entry.source} (export=${entry.export}, '
+      'template=${entry.template}).',
     );
   }
 
-  String _emit(Object? schema) {
-    switch (config.template) {
+  String _emit(Object? schema, SchemaEntry entry) {
+    switch (entry.template) {
       case 'field_definitions':
         return emitFieldDefinitions(
           schema: schema,
-          fieldClassImport: config.fieldClassImport!,
-          tsSourcePath: config.source,
-          exportName: config.export,
+          fieldClassImport: entry.fieldClassImport!,
+          tsSourcePath: entry.source,
+          exportName: entry.export,
         );
       case 'map':
       default:
         return emitMapTemplate(
           value: schema,
-          tsSourcePath: config.source,
-          exportName: config.export,
+          tsSourcePath: entry.source,
+          exportName: entry.export,
         );
     }
   }
@@ -84,19 +101,6 @@ class TsSchemaBuilder implements Builder {
   /// Locate `tool/ts_export.ts` bundled with this package, regardless of
   /// whether the package is resolved via `path:`, `git:`, or pub.
   String _locateExportScript() {
-    // Package-relative asset resolution: the Dart file we're executing from
-    // is under .dart_tool/build/... at build time, so we can't use __file__.
-    // Instead, resolve via Isolate.resolvePackageUri on our own package URI.
-    // For MVP, rely on PACKAGE_CONFIG to find the package root.
-    //
-    // Simplest correct implementation: walk up from Directory.current looking
-    // for the package's `tool/ts_export.ts`. Since build_runner resolves
-    // package URIs for us, we rely on `package:ts_schema_codegen` pointing
-    // into the right place on disk.
-    // Resolve our package's on-disk root via the consumer's package_config.
-    // `Isolate.resolvePackageUri` is async; build_runner's Builder.build is
-    // already async, but the resolution here is cheap and the sync path
-    // (parsing the checked-in config file) is less fragile across Dart SDKs.
     final config = File(
       p.join(Directory.current.path, '.dart_tool', 'package_config.json'),
     );

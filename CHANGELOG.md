@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.1.2 — 2026-04-24
+
+### Added
+
+- **Multi-schema config** ([#5]). `build.yaml` now accepts a `schemas` list
+  so one builder invocation can produce multiple outputs from multiple TS
+  entries. Each entry has its own `source`, `export`, `template`,
+  `field_class_import`, and `output`. The old single-schema shape
+  (top-level `source`/`export`/etc.) is still accepted and defaults
+  output to `lib/ts_schema.g.dart` for backward compat.
+- **Configurable output path** ([#5]). `output:` option per schema.
+  Must start with `lib/` (build_runner constraint) and end with `.dart`.
+  Duplicate outputs across schemas are rejected at config-parse time.
+- **Zod-style boundary validation** ([#3]). For `field_definitions` schemas,
+  the Deno side now walks the export before `JSON.stringify` and emits
+  JSON-pointer errors (`SCHEMA.ticket.fields[2].type: expected 'string' |
+  'array' | 'text', got 'txt'`). Skipped for `map` template since that
+  accepts any JSON-serializable value. Exit code 6 distinguishes
+  validation failures from other Deno errors. No network deps — the
+  validator is ~80 lines of hand-rolled TS.
+- New `example/multi/` runnable example demonstrating the multi-schema
+  config with one `field_definitions` + one `map` entry side by side.
+
+### Changed
+
+- `TsSchemaConfig.schemas: List<SchemaEntry>` replaces the flat
+  `source`/`export`/`template`/... fields. External callers constructing
+  the config programmatically (rare) will need to update; the build.yaml
+  options surface stays backward-compatible.
+- `DenoRunner.evaluate` takes an optional `template` parameter (default
+  `'map'`) forwarded to `tool/ts_export.ts` to drive validation.
+
+### Tests
+
+- 55 → 67. +7 config cases for multi-schema + backward compat, +5
+  validator pipeline cases (field-type typo, missing required keys,
+  non-string in categories, happy path, map-template skip).
+
+[#3]: https://github.com/Enraio/ts_schema_codegen/issues/3
+[#5]: https://github.com/Enraio/ts_schema_codegen/issues/5
+
+## 0.1.1 — 2026-04-24
+
+### Added
+
+- **Typed authoring API** ([#2]). Ship `types.ts` at the repo root with
+  `defineSchema`, `FieldSet`, `FieldDef`, `FieldType`. Consumers import
+  via pinned Deno URL (or vendor the ~40 lines) and wrap their schema in
+  `defineSchema(...)` for IDE completion + edit-time typo detection.
+- **Generated registry** ([#4], additive). The `field_definitions`
+  template now emits a `GeneratedFieldSet` class and a
+  `const kFieldSets = <String, GeneratedFieldSet>{...}` map alongside
+  the existing per-fieldset lists and routing switch. Consumers can
+  iterate `kFieldSets`, inspect metadata, and build custom routing
+  without regenerating. Default routing path unchanged — this is purely
+  additive.
+- **Custom JSON replacer** ([#6]) in `tool/ts_export.ts`. `Date`,
+  `BigInt`, `Map`, and `Set` now cross the Deno → Dart boundary as
+  tagged objects (`{__type: 'Date', iso: '...'}` etc.) instead of
+  silently mangling. Plain templates pass them through; future
+  templates can recognize `__type` markers to materialize as typed
+  Dart values.
+
+### Fixed
+
+- `builder_impl.dart` now parses `.dart_tool/package_config.json` with
+  `jsonDecode` instead of a regex. The regex was brittle to any future
+  field reordering; the typed lookup surfaces clearer errors
+  (distinguishes a corrupt config from a missing dev-dependency).
+
+### Tests
+
+- 45 → 55. New cases: registry emission (5), JSON replacer roundtrips
+  (5). See `test/` for the full list.
+
+[#2]: https://github.com/Enraio/ts_schema_codegen/issues/2
+[#4]: https://github.com/Enraio/ts_schema_codegen/issues/4
+[#6]: https://github.com/Enraio/ts_schema_codegen/issues/6
+
 ## 0.1.0 — 2026-04-23
 
 Initial release.

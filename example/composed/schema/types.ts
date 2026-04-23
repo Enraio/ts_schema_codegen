@@ -1,18 +1,6 @@
-// Shared type declarations for the composed schema.
+// Re-export the shared types from the package's `types.ts` so fieldset
+// files can import from a short local path. In your own project you'd
+// typically import directly from the pinned URL; this indirection is just
+// ergonomics for the example.
 
-export interface FieldDef {
-  id: string;
-  type: 'string' | 'array' | 'text';
-  label: string;
-  options?: string[];
-  required?: boolean;
-  hint?: string;
-  defaultValue?: string;
-}
-
-export interface FieldSet {
-  label: string;
-  categories: string[];
-  subcategoryRoutes?: string[];
-  fields: FieldDef[];
-}
+export { defineSchema, type FieldDef, type FieldSet, type FieldType } from '../../../types.ts';
