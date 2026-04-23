@@ -1,19 +1,24 @@
-/// Emits Dart source from the JSON representation of a TS schema.
+/// Emits Dart source from a [SchemaIR] (for `field_definitions`) or raw
+/// JSON (for `map`).
 ///
 /// Two templates are supported:
-///   * [emitMapTemplate]          — generic `const Map<String, dynamic>`
-///   * [emitFieldDefinitions]     — opinionated output for schemas shaped
-///                                  like outfii's `FIELD_SCHEMA`: per-fieldset
+///   * [emitMapTemplate]          — generic `const Object? schema = ...`
+///                                  for any JSON-serializable value
+///   * [emitFieldDefinitions]     — opinionated output for schemas parsed
+///                                  into [SchemaIR]: per-fieldset
 ///                                  `const <FieldDefinition>[...]` lists +
-///                                  a subcategory/category routing switch.
+///                                  a subcategory/category routing switch +
+///                                  a `kFieldSets` registry
 ///
-/// Both entry points return a Dart source string; the caller is responsible
-/// for writing it to the asset and running `dart format`.
+/// Both entry points return a Dart source string; the caller writes it to
+/// an asset and runs `dart format`.
 library;
+
+import 'ir.dart';
 
 const _header = '// GENERATED — DO NOT EDIT.';
 
-/// Generic template: emit the schema as a nested `Map<String, dynamic>`.
+/// Generic template: emit the schema as a nested `Object?`.
 String emitMapTemplate({
   required Object? value,
   required String tsSourcePath,
@@ -51,71 +56,27 @@ String _literal(Object? value) {
 }
 
 String _dartString(String s) {
-  // Match the JavaScript generator's escaping: backslash, single-quote.
   final escaped = s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
   return "'$escaped'";
 }
 
 // ---------------------------------------------------------------------------
-// field_definitions template — outfii-shaped.
+// field_definitions template
 // ---------------------------------------------------------------------------
 
-/// Emits outfii-style `FieldDefinition` constants + a category routing
-/// function. Expects [schema] to have this JSON shape (produced by outfii's
-/// `FIELD_SCHEMA` export):
+/// Emits per-fieldset `FieldDefinition` const lists + a routing function +
+/// a `kFieldSets` registry.
 ///
-/// ```
-/// {
-///   "<fieldsetKey>": {
-///     "label": string,
-///     "categories": string[],
-///     "subcategoryRoutes"?: string[],
-///     "fields": [
-///       {
-///         "id": string,
-///         "type": "string" | "array" | "text",
-///         "label": string,
-///         "options"?: string[],
-///         "hint"?: string,
-///         "required"?: boolean,
-///         "defaultValue"?: string,
-///         ...  // other keys are tolerated and ignored by this template
-///       }
-///     ]
-///   }
-/// }
-/// ```
-///
-/// The generated symbols are public (no leading underscore) so consumers
-/// can import them as a standalone library. Hand-written logic (value
-/// normalization, AI hint rendering, etc.) sits alongside in a separate
-/// host file and delegates to [getFieldsForCategoryGenerated].
+/// All shape interpretation lives in [parseFieldDefinitionsIR]; this
+/// function trusts its typed [schema] argument and focuses on string
+/// generation. That split keeps each concern testable on its own and
+/// makes new templates purely additive.
 String emitFieldDefinitions({
-  required Object? schema,
+  required SchemaIR schema,
   required String fieldClassImport,
   required String tsSourcePath,
   required String exportName,
 }) {
-  if (schema is! Map) {
-    throw StateError(
-      'emitFieldDefinitions: expected Map at schema root, got '
-      '${schema.runtimeType}.',
-    );
-  }
-  final fieldsets = Map<String, Map<String, Object?>>.fromEntries(
-    schema.entries.map((e) {
-      final v = e.value;
-      if (v is! Map) {
-        throw StateError(
-          'emitFieldDefinitions: fieldset "${e.key}" is not an object.',
-        );
-      }
-      return MapEntry(e.key.toString(), Map<String, Object?>.from(v));
-    }),
-  );
-
-  final hasCommon = fieldsets.containsKey('common');
-
   final buf = StringBuffer()
     ..writeln(_header)
     ..writeln('// Source: $tsSourcePath (export: $exportName)')
@@ -123,16 +84,17 @@ String emitFieldDefinitions({
     ..writeln()
     ..writeln("import '$fieldClassImport';")
     ..writeln()
-    // Emit a self-contained `GeneratedFieldSet` class so the registry
-    // below doesn't force consumers to own a parallel Dart type.
     ..writeln(
-        '/// Data carrier for the generated fieldset registry (`kFieldSets`).')
+      '/// Data carrier for the generated fieldset registry (`kFieldSets`).',
+    )
     ..writeln('///')
     ..writeln('/// Provided by the generator so consumers can reflect on the')
     ..writeln(
-        '/// schema at runtime — iterate [kFieldSets], build custom routing,')
+      '/// schema at runtime — iterate [kFieldSets], build custom routing,',
+    )
     ..writeln(
-        '/// etc. — without depending on a consumer-authored wrapper class.')
+      '/// etc. — without depending on a consumer-authored wrapper class.',
+    )
     ..writeln('class GeneratedFieldSet {')
     ..writeln('  final String label;')
     ..writeln('  final List<String> categories;')
@@ -148,79 +110,60 @@ String emitFieldDefinitions({
     ..writeln('}')
     ..writeln();
 
-  // Emit one `const <key>Fields` list per fieldset. When a `common`
-  // fieldset exists, spread it into every other fieldset so common
-  // fields (e.g. consent, timestamps) appear on every form.
-  for (final entry in fieldsets.entries) {
-    final key = entry.key;
-    final fields = entry.value['fields'];
-    if (fields is! List) {
-      throw StateError(
-        'emitFieldDefinitions: fieldset "$key" has no "fields" list.',
-      );
+  // Per-fieldset const lists. When a `common` fieldset exists, spread it
+  // into every other fieldset so shared fields appear on every form.
+  for (final fs in schema.fieldsets) {
+    buf.writeln('const ${fs.key}Fields = <FieldDefinition>[');
+    for (final field in fs.fields) {
+      buf.writeln(_emitFieldDef(field));
     }
-    buf.writeln('const ${key}Fields = <FieldDefinition>[');
-    for (final field in fields) {
-      if (field is! Map) {
-        throw StateError(
-          'emitFieldDefinitions: fieldset "$key" contains non-object field.',
-        );
-      }
-      buf.writeln(_emitFieldDef(Map<String, Object?>.from(field)));
-    }
-    if (hasCommon && key != 'common') {
+    if (schema.hasCommon && fs.key != 'common') {
       buf.writeln('  ...commonFields,');
     }
     buf.writeln('];');
     buf.writeln();
   }
 
-  // Emit the data-driven registry. Keeps the metadata (label, categories,
-  // subcategoryRoutes) discoverable at runtime — a prerequisite for
-  // custom routing policies that consumers build without forking the
-  // emitter.
-  buf.writeln(
-      '/// Registry of every fieldset emitted from the TS schema, keyed');
-  buf.writeln(
-      '/// by fieldset name. Reflectable — iterate [kFieldSets] to build');
-  buf.writeln(
-      '/// custom routing, UIs, or validation without regenerating Dart.');
-  buf.writeln('const kFieldSets = <String, GeneratedFieldSet>{');
-  for (final entry in fieldsets.entries) {
-    final key = entry.key;
-    final label = entry.value['label'];
-    final categories = entry.value['categories'];
-    final subRoutes = entry.value['subcategoryRoutes'];
-    buf.writeln("  '${_escape(key)}': GeneratedFieldSet(");
-    buf.writeln("    label: '${_escape(label?.toString() ?? '')}',");
-    buf.writeln('    categories: ${_stringList(categories)},');
-    if (subRoutes is List && subRoutes.isNotEmpty) {
-      buf.writeln('    subcategoryRoutes: ${_stringList(subRoutes)},');
+  // Registry.
+  buf
+    ..writeln(
+      '/// Registry of every fieldset emitted from the TS schema, keyed',
+    )
+    ..writeln(
+      '/// by fieldset name. Reflectable — iterate [kFieldSets] to build',
+    )
+    ..writeln(
+      '/// custom routing, UIs, or validation without regenerating Dart.',
+    )
+    ..writeln('const kFieldSets = <String, GeneratedFieldSet>{');
+  for (final fs in schema.fieldsets) {
+    buf.writeln("  '${_escape(fs.key)}': GeneratedFieldSet(");
+    buf.writeln("    label: '${_escape(fs.label)}',");
+    buf.writeln('    categories: ${_stringList(fs.categories)},');
+    if (fs.subcategoryRoutes.isNotEmpty) {
+      buf.writeln('    subcategoryRoutes: ${_stringList(fs.subcategoryRoutes)},');
     }
-    buf.writeln('    fields: ${key}Fields,');
+    buf.writeln('    fields: ${fs.key}Fields,');
     buf.writeln('  ),');
   }
   buf.writeln('};');
   buf.writeln();
 
-  // Emit the routing function.
+  // Routing function.
   buf
-    ..writeln(
-      'List<FieldDefinition> getFieldsForCategoryGenerated(',
-    )
+    ..writeln('List<FieldDefinition> getFieldsForCategoryGenerated(')
     ..writeln('  String category, {')
     ..writeln('  String? subcategory,')
     ..writeln('}) {')
     ..writeln('  if (subcategory != null) {')
     ..writeln('    switch (subcategory.toLowerCase()) {');
 
-  for (final entry in fieldsets.entries) {
-    final routes = entry.value['subcategoryRoutes'];
-    if (routes is! List || routes.isEmpty) continue;
-    for (final r in routes) {
-      buf.writeln("      case '${_escape(r.toString())}':");
+  for (final fs in schema.fieldsets) {
+    if (fs.subcategoryRoutes.isEmpty) continue;
+    for (final r in fs.subcategoryRoutes) {
+      buf.writeln("      case '${_escape(r)}':");
     }
-    buf.writeln('        return ${entry.key}Fields;');
+    buf.writeln('        return ${fs.key}Fields;');
   }
 
   buf
@@ -229,34 +172,26 @@ String emitFieldDefinitions({
     ..writeln()
     ..writeln('  switch (category.toLowerCase()) {');
 
-  for (final entry in fieldsets.entries) {
-    if (entry.key == 'common') continue;
-    final categories = entry.value['categories'];
-    final cases = <String>{};
-    if (categories is List) {
-      for (final c in categories) {
-        cases.add(c.toString());
-      }
-    }
-    // Categories-empty fieldsets (historically `watch`, `fragrance` under
-    // the legacy schema) still match on the key itself if they have
-    // subcategory routes. Preserve that behavior.
-    final subRoutes = entry.value['subcategoryRoutes'];
-    if (cases.isEmpty && subRoutes is List && subRoutes.isNotEmpty) {
-      cases.add(entry.key);
+  for (final fs in schema.fieldsets) {
+    if (fs.key == 'common') continue;
+
+    // Backward-compat: a fieldset with no top-level `categories` but at
+    // least one subcategory route still matches its own key as a
+    // category. Mirrors the original emitter's behavior.
+    final cases = <String>{...fs.categories};
+    if (cases.isEmpty && fs.subcategoryRoutes.isNotEmpty) {
+      cases.add(fs.key);
     }
     if (cases.isEmpty) continue;
+
     for (final c in cases) {
       buf.writeln("    case '${_escape(c)}':");
     }
-    buf.writeln('      return ${entry.key}Fields;');
+    buf.writeln('      return ${fs.key}Fields;');
   }
 
-  // Default branch: return common fields if a common fieldset exists,
-  // otherwise an empty list. Consumers that rely on "common fallback"
-  // behavior should always include a `common` fieldset in their TS.
   buf.writeln('    default:');
-  if (hasCommon) {
+  if (schema.hasCommon) {
     buf.writeln('      return commonFields;');
   } else {
     buf.writeln('      return const <FieldDefinition>[];');
@@ -269,62 +204,46 @@ String emitFieldDefinitions({
   return buf.toString();
 }
 
-String _emitFieldDef(Map<String, Object?> f) {
-  final lines = <String>[];
-  final id = f['id'];
-  final label = f['label'];
-  final type = f['type'];
-  if (id is! String || label is! String || type is! String) {
-    throw StateError(
-      'emitFieldDefinitions: field is missing id/label/type: $f',
-    );
-  }
-  lines.add("    id: '${_escape(id)}'");
-  lines.add("    label: '${_escape(label)}'");
-  lines.add('    type: ${_fieldType(type)}');
-
-  final options = f['options'];
-  if (options is List && options.isNotEmpty) {
-    final items = options.map((o) => "'${_escape(o.toString())}'").join(', ');
+String _emitFieldDef(FieldDefIR f) {
+  final lines = <String>[
+    "    id: '${_escape(f.id)}'",
+    "    label: '${_escape(f.label)}'",
+    '    type: ${_fieldType(f.kind)}',
+  ];
+  if (f.options != null && f.options!.isNotEmpty) {
+    final items = f.options!.map((o) => "'${_escape(o)}'").join(', ');
     lines.add('    options: [$items]');
   }
-  final hint = f['hint'];
-  if (hint is String && hint.isNotEmpty) {
-    lines.add("    hint: '${_escape(hint)}'");
+  if (f.hint != null && f.hint!.isNotEmpty) {
+    lines.add("    hint: '${_escape(f.hint!)}'");
   }
-  final required = f['required'];
-  if (required == true) {
+  if (f.required) {
     lines.add('    required: true');
   }
-  final defaultValue = f['defaultValue'];
-  if (defaultValue is String && defaultValue.isNotEmpty) {
-    lines.add("    defaultValue: '${_escape(defaultValue)}'");
+  if (f.defaultValue != null && f.defaultValue!.isNotEmpty) {
+    lines.add("    defaultValue: '${_escape(f.defaultValue!)}'");
   }
-
   return '  FieldDefinition(\n${lines.join(',\n')},\n  ),';
 }
 
-String _fieldType(String t) {
-  switch (t) {
-    case 'string':
+String _fieldType(FieldKind kind) {
+  switch (kind) {
+    case FieldKind.dropdown:
       return 'FieldType.dropdown';
-    case 'array':
+    case FieldKind.multiSelect:
       return 'FieldType.multiSelect';
-    case 'text':
-      return 'FieldType.text';
-    default:
+    case FieldKind.text:
       return 'FieldType.text';
   }
 }
 
 String _escape(String s) => s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
 
-/// Emit an `Object?` value that is expected to be a `List<String>` as a
-/// Dart literal. This is only called from inside `const kFieldSets = {...}`,
-/// which is already a const context — so no leading `const` is needed and
-/// emitting one trips the `unnecessary_const` lint.
-String _stringList(Object? value) {
-  if (value is! List || value.isEmpty) return '<String>[]';
-  final items = value.map((e) => "'${_escape(e.toString())}'").join(', ');
+/// Emit a `List<String>` as a Dart literal. Called only from inside a
+/// `const` context (`const kFieldSets = {...}`) so no leading `const`
+/// prefix — that would trip `unnecessary_const`.
+String _stringList(List<String> value) {
+  if (value.isEmpty) return '<String>[]';
+  final items = value.map((e) => "'${_escape(e)}'").join(', ');
   return '[$items]';
 }

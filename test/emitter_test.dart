@@ -1,5 +1,48 @@
 import 'package:test/test.dart';
 import 'package:ts_schema_codegen/src/emitter.dart';
+import 'package:ts_schema_codegen/src/ir.dart';
+
+// Small fixture builders so each test declares only what it exercises.
+// Keeping these here (not in lib/src/) because they're test-only.
+
+FieldDefIR _f(
+  String id, {
+  FieldKind kind = FieldKind.text,
+  String? label,
+  List<String>? options,
+  String? hint,
+  bool required = false,
+  String? defaultValue,
+}) =>
+    FieldDefIR(
+      id: id,
+      kind: kind,
+      label: label ?? id,
+      options: options,
+      hint: hint,
+      required: required,
+      defaultValue: defaultValue,
+    );
+
+FieldSetIR _fs(
+  String key, {
+  String? label,
+  List<String> categories = const [],
+  List<String> subcategoryRoutes = const [],
+  List<FieldDefIR> fields = const [],
+}) =>
+    FieldSetIR(
+      key: key,
+      label: label ?? key.toUpperCase(),
+      categories: categories,
+      subcategoryRoutes: subcategoryRoutes,
+      fields: fields,
+    );
+
+SchemaIR _ir(List<FieldSetIR> fieldsets) => SchemaIR(
+      fieldsets: fieldsets,
+      hasCommon: fieldsets.any((f) => f.key == 'common'),
+    );
 
 void main() {
   group('emitMapTemplate', () {
@@ -17,7 +60,7 @@ void main() {
 
     test('emits strings with single-quote and backslash escaping', () {
       final out = emitMapTemplate(
-        value: {"apostrophe": "it's", "slash": r'a\b'},
+        value: {'apostrophe': "it's", 'slash': r'a\b'},
         tsSourcePath: 'schema.ts',
         exportName: 'S',
       );
@@ -109,21 +152,13 @@ void main() {
         exportName: 'S',
       );
       expect(out, contains("'leaf'"));
-      // 30 nested 'n' keys.
       expect("'n':".allMatches(out).length, 30);
     });
 
     test('preserves mixed-type lists', () {
       final out = emitMapTemplate(
         value: {
-          'mixed': [
-            1,
-            'two',
-            true,
-            null,
-            3.14,
-            <String, Object?>{'k': 'v'}
-          ],
+          'mixed': [1, 'two', true, null, 3.14, <String, Object?>{'k': 'v'}],
         },
         tsSourcePath: 's',
         exportName: 'S',
@@ -140,289 +175,56 @@ void main() {
   group('emitFieldDefinitions', () {
     const import = 'package:testapp/field_definition.dart';
 
+    String emit(SchemaIR schema) => emitFieldDefinitions(
+          schema: schema,
+          fieldClassImport: import,
+          tsSourcePath: 's.ts',
+          exportName: 'S',
+        );
+
     test('handles empty schema (no fieldsets)', () {
-      final out = emitFieldDefinitions(
-        schema: <String, Object?>{},
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([]));
       expect(out, contains("import '$import';"));
       expect(out, contains('getFieldsForCategoryGenerated'));
-      // With no fieldsets there are no case labels — default branch must return an empty list.
+      // No common fieldset → default branch is an empty list, not commonFields.
       expect(out, contains('return const <FieldDefinition>[]'));
     });
 
     test('handles fieldset with empty fields list', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'empty': {
-            'label': 'EMPTY',
-            'categories': ['empty'],
-            'fields': <Object?>[],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('empty', categories: ['empty']),
+      ]));
       expect(out, contains('const emptyFields = <FieldDefinition>['));
-      // No FieldDefinition rows, and no commonFields spread either.
       expect(out, isNot(contains('FieldDefinition(')));
     });
 
-    test('rejects fieldset without "fields" key', () {
-      expect(
-        () => emitFieldDefinitions(
-          schema: {
-            'broken': {
-              'label': 'X',
-              'categories': ['x']
-            },
-          },
-          fieldClassImport: import,
-          tsSourcePath: 's.ts',
-          exportName: 'S',
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('has no "fields" list'),
-          ),
-        ),
-      );
-    });
-
-    test('rejects field missing required props (id/label/type)', () {
-      expect(
-        () => emitFieldDefinitions(
-          schema: {
-            'x': {
-              'label': 'X',
-              'categories': ['x'],
-              'fields': [
-                {'id': 'nolabel', 'type': 'text'},
-              ],
-            },
-          },
-          fieldClassImport: import,
-          tsSourcePath: 's.ts',
-          exportName: 'S',
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('missing id/label/type'),
-          ),
-        ),
-      );
-    });
-
-    test('tolerates extra unknown keys on FieldDef', () {
-      // Real schemas (like outfii's) carry metadata the emitter doesn't care
-      // about (abbreviation, aiRelevant, topLevelColumn, compactAs, scanHint).
-      // Those should pass through silently.
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {
-                'id': 'color',
-                'type': 'string',
-                'label': 'Color',
-                'abbreviation': 'c',
-                'aiRelevant': true,
-                'topLevelColumn': false,
-                'compactAs': 'string',
-                'scanHint': 'pick one',
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      expect(out, contains("id: 'color'"));
-      // None of the unknown keys should leak into the Dart output.
-      expect(out, isNot(contains('abbreviation')));
-      expect(out, isNot(contains('aiRelevant')));
-      expect(out, isNot(contains('topLevelColumn')));
-      expect(out, isNot(contains('compactAs')));
-      expect(out, isNot(contains('scanHint')));
-    });
-
-    test('preserves Unicode in labels and options', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'intl': {
-            'label': 'INTL',
-            'categories': ['intl'],
-            'fields': [
-              {
-                'id': 'greeting',
-                'type': 'string',
-                'label': 'Gruß',
-                'options': ['こんにちは', '你好', 'مرحبا'],
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      expect(out, contains("label: 'Gruß'"));
-      expect(out, contains("'こんにちは'"));
-      expect(out, contains("'你好'"));
-      expect(out, contains("'مرحبا'"));
-    });
-
-    test('preserves insertion order of fieldsets in emitted output', () {
-      // Consumers rely on ordering (e.g. Dart switch-case output) matching
-      // the TS source. JSON preserves insertion order for string keys, and
-      // Dart Map<String, _>.fromEntries does too — but we should guard
-      // against a refactor that sorts alphabetically or otherwise.
-      final out = emitFieldDefinitions(
-        schema: {
-          'zebra': {
-            'label': 'Z',
-            'categories': ['z'],
-            'fields': [
-              {'id': 'a', 'type': 'text', 'label': 'A'},
-            ],
-          },
-          'apple': {
-            'label': 'A',
-            'categories': ['a'],
-            'fields': [
-              {'id': 'b', 'type': 'text', 'label': 'B'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      final zebraIdx = out.indexOf('zebraFields');
-      final appleIdx = out.indexOf('appleFields');
-      expect(zebraIdx, lessThan(appleIdx),
-          reason: 'TS insertion order (zebra before apple) must be preserved');
-    });
-
-    test('rejects non-map root', () {
-      expect(
-        () => emitFieldDefinitions(
-          schema: <Object?>[1, 2, 3],
-          fieldClassImport: import,
-          tsSourcePath: 's.ts',
-          exportName: 'S',
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('expected Map at schema root'),
-          ),
-        ),
-      );
-    });
-
-    test('emits per-fieldset const lists with the right names', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'common': {
-            'label': 'COMMON',
-            'categories': <String>[],
-            'fields': [
-              {
-                'id': 'condition',
-                'type': 'string',
-                'label': 'Condition',
-                'options': ['New', 'Used'],
-              },
-            ],
-          },
-          'clothing': {
-            'label': 'TOPS',
-            'categories': ['top', 'dress'],
-            'fields': [
-              {
-                'id': 'fabric',
-                'type': 'string',
-                'label': 'Fabric',
-                'options': ['Cotton'],
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 'schema.ts',
-        exportName: 'FIELD_SCHEMA',
-      );
-      expect(out, contains("import '$import';"));
-      expect(out, contains('const commonFields = <FieldDefinition>['));
-      expect(out, contains('const clothingFields = <FieldDefinition>['));
-      // common is NOT spread into itself; other fieldsets spread common.
-      expect(
-        out,
-        predicate<String>(
-          (s) => !s.contains(
-              'const commonFields = <FieldDefinition>[\n  ...commonFields'),
-        ),
-      );
-      expect(out, contains('...commonFields,'));
-    });
-
-    test('maps FieldDef types to FieldType enum correctly', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {'id': 'a', 'type': 'string', 'label': 'A'},
-              {'id': 'b', 'type': 'array', 'label': 'B'},
-              {'id': 'c', 'type': 'text', 'label': 'C'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+    test('maps FieldKind values to FieldType enum correctly', () {
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [
+          _f('a', kind: FieldKind.dropdown),
+          _f('b', kind: FieldKind.multiSelect),
+          _f('c', kind: FieldKind.text),
+        ]),
+      ]));
       expect(out, contains('type: FieldType.dropdown'));
       expect(out, contains('type: FieldType.multiSelect'));
       expect(out, contains('type: FieldType.text'));
     });
 
     test('forwards optional props: options, hint, required, defaultValue', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {
-                'id': 'size',
-                'type': 'string',
-                'label': 'Size',
-                'options': ['S', 'M', 'L'],
-                'hint': 'pick one',
-                'required': true,
-                'defaultValue': 'M',
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [
+          _f(
+            'size',
+            kind: FieldKind.dropdown,
+            label: 'Size',
+            options: ['S', 'M', 'L'],
+            hint: 'pick one',
+            required: true,
+            defaultValue: 'M',
+          ),
+        ]),
+      ]));
       expect(out, contains("id: 'size'"));
       expect(out, contains("options: ['S', 'M', 'L']"));
       expect(out, contains("hint: 'pick one'"));
@@ -431,43 +233,24 @@ void main() {
     });
 
     test('omits options when absent; does not emit required:false', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {'id': 'notes', 'type': 'text', 'label': 'Notes'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [
+          _f('notes', kind: FieldKind.text),
+        ]),
+      ]));
       expect(out, isNot(contains('options:')));
       expect(out, isNot(contains('required:')));
       expect(out, isNot(contains('defaultValue:')));
       expect(out, isNot(contains('hint:')));
     });
 
-    test('routing: subcategory routes take precedence over category switch',
-        () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'watch': {
-            'label': 'WATCH',
-            'categories': ['watch'],
-            'subcategoryRoutes': ['watch', 'smartwatch'],
-            'fields': [
-              {'id': 'type', 'type': 'string', 'label': 'Type'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+    test('routing: subcategory routes take precedence over category switch', () {
+      final out = emit(_ir([
+        _fs('watch', categories: ['watch'],
+            subcategoryRoutes: ['watch', 'smartwatch'], fields: [
+          _f('type', kind: FieldKind.dropdown),
+        ]),
+      ]));
       expect(
         out,
         contains(
@@ -480,147 +263,67 @@ void main() {
       );
     });
 
-    test(
-        'routing: common is never a category case; default falls to commonFields',
-        () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'common': {
-            'label': 'COMMON',
-            'categories': <String>[],
-            'fields': [
-              {'id': 'condition', 'type': 'string', 'label': 'Condition'},
-            ],
-          },
-          'clothing': {
-            'label': 'TOPS',
-            'categories': ['top'],
-            'fields': [
-              {'id': 'fabric', 'type': 'string', 'label': 'Fabric'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+    test('common is never a category case; default falls to commonFields', () {
+      final out = emit(_ir([
+        _fs('common', fields: [_f('condition', kind: FieldKind.dropdown)]),
+        _fs('clothing', categories: ['top'], fields: [_f('fabric')]),
+      ]));
       expect(out, contains("case 'top':\n      return clothingFields;"));
       expect(out, contains('default:\n      return commonFields;'));
-      // common must not appear as a case label.
       expect(out, isNot(contains("case 'common':")));
     });
 
     test(
-        'schemas without a "common" fieldset skip commonFields spread + fallback',
+        'schemas without a common fieldset skip commonFields spread + fallback',
         () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'user': {
-            'label': 'USER',
-            'categories': ['user'],
-            'fields': [
-              {'id': 'name', 'type': 'text', 'label': 'Name'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('user', categories: ['user'], fields: [_f('name')]),
+      ]));
       expect(out, isNot(contains('...commonFields')));
       expect(out, isNot(contains('return commonFields')));
       expect(out, contains('return const <FieldDefinition>[]'));
     });
 
     test(
-        'routing: empty-categories fieldset with subcategory routes also matches key as category',
+        'empty-categories fieldset with subcategory routes matches key as category',
         () {
-      // Backward-compat shape: a fieldset defined only via subcategoryRoutes
-      // still matches `category == key` as a fallback.
-      final out = emitFieldDefinitions(
-        schema: {
-          'fragrance': {
-            'label': 'FRAGRANCE',
-            'categories': <String>[],
-            'subcategoryRoutes': ['perfume'],
-            'fields': [
-              {'id': 'conc', 'type': 'string', 'label': 'Concentration'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
+      final out = emit(_ir([
+        _fs('fragrance',
+            categories: const [],
+            subcategoryRoutes: ['perfume'],
+            fields: [_f('conc', kind: FieldKind.dropdown)]),
+      ]));
+      expect(
+        out,
+        contains("case 'fragrance':\n      return fragranceFields;"),
       );
-      expect(out, contains("case 'fragrance':\n      return fragranceFields;"));
     });
 
     test('escapes single-quotes and backslashes in option values', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {
-                'id': 'h',
-                'type': 'string',
-                'label': 'H',
-                'options': ["it's", r'a\b'],
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      // Single quote must be escaped inside a single-quoted Dart string.
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [
+          _f('h', kind: FieldKind.dropdown, options: ["it's", r'a\b']),
+        ]),
+      ]));
       expect(out, contains(r"'it\'s'"));
-      // Backslash must be doubled.
       expect(out, contains(r"'a\\b'"));
     });
 
     test('double quotes pass through unescaped in single-quoted strings', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {
-                'id': 'h',
-                'type': 'string',
-                'label': 'H',
-                'options': ['Flat (0-1")'],
-              },
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [
+          _f('h', kind: FieldKind.dropdown, options: ['Flat (0-1")']),
+        ]),
+      ]));
       expect(out, contains("'Flat (0-1\")'"));
     });
 
-    // --- Registry emission (#4, additive) ---
+    // --- Registry emission (#4) ---
 
     test('emits GeneratedFieldSet class for the registry', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'user': {
-            'label': 'USER',
-            'categories': ['user'],
-            'fields': [
-              {'id': 'name', 'type': 'text', 'label': 'Name'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs('user', categories: ['user'], fields: [_f('name')]),
+      ]));
       expect(out, contains('class GeneratedFieldSet {'));
       expect(out, contains('final String label;'));
       expect(out, contains('final List<String> categories;'));
@@ -629,60 +332,31 @@ void main() {
     });
 
     test('emits kFieldSets map with one entry per fieldset', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'common': {
-            'label': 'COMMON',
-            'categories': <String>[],
-            'fields': [
-              {'id': 'consent', 'type': 'string', 'label': 'Consent'},
-            ],
-          },
-          'ticket': {
-            'label': 'TICKET',
-            'categories': ['ticket'],
-            'subcategoryRoutes': ['bug'],
-            'fields': [
-              {'id': 'severity', 'type': 'string', 'label': 'Severity'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      expect(out, contains("const kFieldSets = <String, GeneratedFieldSet>{"));
-      // Each fieldset key is present
+      final out = emit(_ir([
+        _fs('common', fields: [_f('consent', kind: FieldKind.dropdown)]),
+        _fs(
+          'ticket',
+          categories: ['ticket'],
+          subcategoryRoutes: ['bug'],
+          fields: [_f('severity', kind: FieldKind.dropdown)],
+        ),
+      ]));
+      expect(out, contains('const kFieldSets = <String, GeneratedFieldSet>{'));
       expect(out, contains("'common': GeneratedFieldSet("));
       expect(out, contains("'ticket': GeneratedFieldSet("));
-      // Metadata is carried into the registry entry
       expect(out, contains("label: 'COMMON'"));
       expect(out, contains("label: 'TICKET'"));
       expect(out, contains('categories: <String>[]'));
       expect(out, contains("categories: ['ticket']"));
       expect(out, contains("subcategoryRoutes: ['bug']"));
-      // And the entry references the per-fieldset list we already emit.
       expect(out, contains('fields: commonFields,'));
       expect(out, contains('fields: ticketFields,'));
     });
 
     test('registry omits subcategoryRoutes line when empty', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'x': {
-            'label': 'X',
-            'categories': ['x'],
-            'fields': [
-              {'id': 'a', 'type': 'text', 'label': 'A'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
-      // No explicit `subcategoryRoutes:` entry — the generated class's
-      // default (`const []`) takes over.
+      final out = emit(_ir([
+        _fs('x', categories: ['x'], fields: [_f('a')]),
+      ]));
       final entryStart = out.indexOf("'x': GeneratedFieldSet(");
       final entryEnd = out.indexOf('),', entryStart);
       final entry = out.substring(entryStart, entryEnd);
@@ -691,48 +365,25 @@ void main() {
 
     test('registry escapes special characters in label / routes / categories',
         () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'it_s': {
-            'label': "it's",
-            'categories': ["a\\b"],
-            'subcategoryRoutes': ["c'd"],
-            'fields': [
-              {'id': 'x', 'type': 'text', 'label': 'X'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+      final out = emit(_ir([
+        _fs(
+          'it_s',
+          label: "it's",
+          categories: ['a\\b'],
+          subcategoryRoutes: ["c'd"],
+          fields: [_f('x')],
+        ),
+      ]));
       expect(out, contains(r"label: 'it\'s'"));
       expect(out, contains(r"categories: ['a\\b']"));
       expect(out, contains(r"subcategoryRoutes: ['c\'d']"));
     });
 
-    test('registry preserves TS insertion order', () {
-      final out = emitFieldDefinitions(
-        schema: {
-          'zebra': {
-            'label': 'Z',
-            'categories': ['z'],
-            'fields': [
-              {'id': 'a', 'type': 'text', 'label': 'A'},
-            ],
-          },
-          'apple': {
-            'label': 'A',
-            'categories': ['a'],
-            'fields': [
-              {'id': 'b', 'type': 'text', 'label': 'B'},
-            ],
-          },
-        },
-        fieldClassImport: import,
-        tsSourcePath: 's.ts',
-        exportName: 'S',
-      );
+    test('registry preserves IR fieldset order', () {
+      final out = emit(_ir([
+        _fs('zebra', categories: ['z'], fields: [_f('a')]),
+        _fs('apple', categories: ['a'], fields: [_f('b')]),
+      ]));
       final registryStart = out.indexOf('const kFieldSets');
       final zebraIdx = out.indexOf("'zebra': GeneratedFieldSet", registryStart);
       final appleIdx = out.indexOf("'apple': GeneratedFieldSet", registryStart);
