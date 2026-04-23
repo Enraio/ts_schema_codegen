@@ -29,11 +29,18 @@ class DenoRunner {
 
   /// Evaluate [tsPath] (relative to [workingDirectory]) and extract the
   /// named export [exportName]. Returns the parsed JSON.
+  ///
+  /// [template] is forwarded to `tool/ts_export.ts` so the Deno side can
+  /// validate the shape before serialization. Unknown templates fall through
+  /// to no validation — the emitter's own checks still apply.
   Future<Object?> evaluate({
     required String tsPath,
     required String exportName,
+    String template = 'map',
   }) async {
-    final absTs = p.isAbsolute(tsPath) ? tsPath : p.normalize(p.join(workingDirectory, tsPath));
+    final absTs = p.isAbsolute(tsPath)
+        ? tsPath
+        : p.normalize(p.join(workingDirectory, tsPath));
     if (!File(absTs).existsSync()) {
       throw StateError(
         'ts_schema_codegen: source file not found at $absTs '
@@ -52,6 +59,7 @@ class DenoRunner {
         exportScriptPath,
         absTs,
         exportName,
+        template,
       ],
       workingDirectory: workingDirectory,
       stdoutEncoding: utf8,

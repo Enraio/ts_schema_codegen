@@ -7,6 +7,17 @@ pubspec.lock
 doc/api/
 
 # Example-generated output — regenerated on every `dart run build_runner build`
-example/**/ts_schema.g.dart
+example/**/*.g.dart
 example/**/pubspec.lock
 example/**/.dart_tool/
+
+# The Flutter demo commits its generated file on purpose: viewers browsing
+# the example on GitHub / pub.dev should see what the output looks like,
+# and the hosted demo reads it as a runtime asset. CI regenerates before
+# deploying, so the hosted copy is always current.
+!example/flutter_forms/lib/ts_schema.g.dart
+!example/flutter_forms/assets/ts_schema.g.dart
+
+# Local test artifacts from playwright / screenshot runs.
+.playwright-mcp/
+demo-*.png

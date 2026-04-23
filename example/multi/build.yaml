@@ -1,0 +1,22 @@
+# Multi-schema config (#5) — one builder invocation produces two outputs:
+# `lib/forms.g.dart` from schema/forms.ts and `lib/config.g.dart` from
+# schema/config.ts. Each entry gets its own template + output path; the
+# `field_definitions` entry gets validated via the Zod-style Deno-side
+# validator before Dart emission.
+
+targets:
+  $default:
+    builders:
+      ts_schema_codegen|ts_schema:
+        enabled: true
+        options:
+          schemas:
+            - source: schema/forms.ts
+              export: FORMS
+              template: field_definitions
+              field_class_import: package:ts_schema_codegen_multi_example/field_definition.dart
+              output: lib/forms.g.dart
+            - source: schema/config.ts
+              export: CONFIG
+              template: map
+              output: lib/config.g.dart

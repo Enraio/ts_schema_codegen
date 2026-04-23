@@ -658,7 +658,7 @@ void main() {
       // Metadata is carried into the registry entry
       expect(out, contains("label: 'COMMON'"));
       expect(out, contains("label: 'TICKET'"));
-      expect(out, contains('categories: const <String>[]'));
+      expect(out, contains('categories: <String>[]'));
       expect(out, contains("categories: ['ticket']"));
       expect(out, contains("subcategoryRoutes: ['bug']"));
       // And the entry references the per-fieldset list we already emit.
