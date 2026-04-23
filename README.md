@@ -183,7 +183,7 @@ without waiting for `build_runner` to fail.
 import {
   defineSchema,
   type FieldSet,
-} from 'https://raw.githubusercontent.com/Enraio/ts_schema_codegen/v0.1.1/types.ts';
+} from 'https://raw.githubusercontent.com/Enraio/ts_schema_codegen/v0.1.4/types.ts';
 
 export const SCHEMA = defineSchema({
   signup: {
@@ -200,7 +200,7 @@ export const SCHEMA = defineSchema({
 
 Tips:
 
-- **Pin to a tag** (`v0.1.1`), not `main` — so future type tightening
+- **Pin to a tag** (`v0.1.4`), not `main` — so future type tightening
   doesn't silently break your schema.
 - **Prefer this over raw object literals.** Typing `subcategoryRoute`
   instead of `subcategoryRoutes` without `defineSchema` silently drops

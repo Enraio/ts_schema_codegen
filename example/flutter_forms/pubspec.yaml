@@ -1,0 +1,28 @@
+name: ts_schema_forms_demo
+description: Live demo of ts_schema_codegen — renders forms from a TypeScript schema.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_highlight: ^0.7.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.15
+  ts_schema_codegen:
+    path: ../..
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/schema.ts
+    - assets/ts_schema.g.dart
+    - assets/form_renderer.dart

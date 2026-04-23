@@ -1,0 +1,74 @@
+name: Deploy Flutter demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'tool/**'
+      - 'example/flutter_forms/**'
+      - '.github/workflows/deploy-example.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        working-directory: example/flutter_forms
+        run: flutter pub get
+
+      - name: Generate Dart from TS schema
+        working-directory: example/flutter_forms
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # The Flutter app displays the TS source + generated Dart as read-only
+      # assets. Refresh the bundled copies so the hosted page never drifts.
+      - name: Sync code viewer assets
+        working-directory: example/flutter_forms
+        run: |
+          cp schema/index.ts assets/schema.ts
+          cp lib/ts_schema.g.dart assets/ts_schema.g.dart
+          cp lib/form_renderer.dart assets/form_renderer.dart
+
+      - name: Build Flutter web
+        working-directory: example/flutter_forms
+        run: flutter build web --release --base-href=/${{ github.event.repository.name }}/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: example/flutter_forms/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
