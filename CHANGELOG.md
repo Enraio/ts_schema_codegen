@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.4 — 2026-04-24
+
+### Changed
+
+- `map` template now emits `const Object schema = ...` (non-nullable) when
+  the evaluated TS export is non-null, and `const Object? schema = null`
+  only when the export is literally `null`. Previously always emitted
+  `const Object?`, which tripped `unnecessary_nullable_for_final_variable_declarations`
+  in consumer projects that lint generated files.
+
+### Cleanup (non-semantic)
+
+- Removed unused `field_definition.dart` imports from `example/lib/main.dart`,
+  `example/composed/lib/main.dart`, `example/multi/lib/main.dart`. The `.name`
+  accessor on `FieldType` values doesn't require the type to be in scope.
+- Converted a handful of double-quoted strings in tests to single quotes
+  (`prefer_single_quotes`).
+
+### Tests
+
+- 75 → 77. +2 emitter cases: `emits Object (non-nullable) when value is non-null`
+  and `emits Object? when value is literally null`.
+
+### Result
+
+`dart analyze` over the whole package (lib + test + all four runnable
+examples) now reports `No issues found!`.
+
 ## 0.1.3 — 2026-04-24
 
 ### Changed (internal)

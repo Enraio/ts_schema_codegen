@@ -3,7 +3,6 @@
 // Run after `dart run build_runner build`:
 //   dart run lib/main.dart
 
-import 'field_definition.dart';
 import 'ts_schema.g.dart' as g;
 
 void main() {

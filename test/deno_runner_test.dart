@@ -27,7 +27,7 @@ void main() {
 
     test('evaluates a primitive export', () async {
       File(p.join(tmp.path, 'schema.ts'))
-          .writeAsStringSync("export const answer = 42;\n");
+          .writeAsStringSync('export const answer = 42;\n');
       final runner = DenoRunner(
         denoCommand: 'deno',
         exportScriptPath: exportScript,
@@ -94,7 +94,7 @@ void main() {
 
     test('fails loudly when the named export is missing', () async {
       File(p.join(tmp.path, 'schema.ts'))
-          .writeAsStringSync("export const foo = 1;\n");
+          .writeAsStringSync('export const foo = 1;\n');
       final runner = DenoRunner(
         denoCommand: 'deno',
         exportScriptPath: exportScript,
@@ -114,7 +114,7 @@ void main() {
 
     test('fails loudly when export is not JSON-serializable', () async {
       File(p.join(tmp.path, 'schema.ts'))
-          .writeAsStringSync("export const fn = () => 42;\n");
+          .writeAsStringSync('export const fn = () => 42;\n');
       final runner = DenoRunner(
         denoCommand: 'deno',
         exportScriptPath: exportScript,

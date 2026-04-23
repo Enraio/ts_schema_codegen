@@ -116,7 +116,7 @@ void main() {
       expect(
         dart,
         contains(
-          "switch (subcategory.toLowerCase()) {\n"
+          'switch (subcategory.toLowerCase()) {\n'
           "      case 'bug':\n"
           "      case 'feature':\n"
           '        return ticketFields;\n'
@@ -161,7 +161,8 @@ void main() {
         exportName: 'CONFIG',
       );
 
-      expect(dart, contains('const Object? schema = '));
+      // Non-null value emits `Object` (non-nullable); null-at-root would be `Object?`.
+      expect(dart, contains('const Object schema = '));
       expect(dart, contains("'version': '1.0.0'"));
       expect(dart, contains("'baseUrl': 'https://api.example.com'"));
       expect(dart, contains("'timeoutMs': 5000"));

@@ -108,6 +108,25 @@ void main() {
       expect(out, contains('dart run build_runner build'));
     });
 
+    test('emits `Object` (non-nullable) when value is non-null', () {
+      final out = emitMapTemplate(
+        value: {'a': 1},
+        tsSourcePath: 's',
+        exportName: 'S',
+      );
+      expect(out, contains('const Object schema = '));
+      expect(out, isNot(contains('const Object? schema')));
+    });
+
+    test('emits `Object?` when value is literally null', () {
+      final out = emitMapTemplate(
+        value: null,
+        tsSourcePath: 's',
+        exportName: 'S',
+      );
+      expect(out, contains('const Object? schema = null;'));
+    });
+
     test('rejects non-JSON types', () {
       expect(
         () => emitMapTemplate(
@@ -158,7 +177,14 @@ void main() {
     test('preserves mixed-type lists', () {
       final out = emitMapTemplate(
         value: {
-          'mixed': [1, 'two', true, null, 3.14, <String, Object?>{'k': 'v'}],
+          'mixed': [
+            1,
+            'two',
+            true,
+            null,
+            3.14,
+            <String, Object?>{'k': 'v'}
+          ],
         },
         tsSourcePath: 's',
         exportName: 'S',
@@ -200,7 +226,9 @@ void main() {
 
     test('maps FieldKind values to FieldType enum correctly', () {
       final out = emit(_ir([
-        _fs('x', categories: ['x'], fields: [
+        _fs('x', categories: [
+          'x'
+        ], fields: [
           _f('a', kind: FieldKind.dropdown),
           _f('b', kind: FieldKind.multiSelect),
           _f('c', kind: FieldKind.text),
@@ -213,7 +241,9 @@ void main() {
 
     test('forwards optional props: options, hint, required, defaultValue', () {
       final out = emit(_ir([
-        _fs('x', categories: ['x'], fields: [
+        _fs('x', categories: [
+          'x'
+        ], fields: [
           _f(
             'size',
             kind: FieldKind.dropdown,
@@ -234,7 +264,9 @@ void main() {
 
     test('omits options when absent; does not emit required:false', () {
       final out = emit(_ir([
-        _fs('x', categories: ['x'], fields: [
+        _fs('x', categories: [
+          'x'
+        ], fields: [
           _f('notes', kind: FieldKind.text),
         ]),
       ]));
@@ -244,10 +276,15 @@ void main() {
       expect(out, isNot(contains('hint:')));
     });
 
-    test('routing: subcategory routes take precedence over category switch', () {
+    test('routing: subcategory routes take precedence over category switch',
+        () {
       final out = emit(_ir([
-        _fs('watch', categories: ['watch'],
-            subcategoryRoutes: ['watch', 'smartwatch'], fields: [
+        _fs('watch', categories: [
+          'watch'
+        ], subcategoryRoutes: [
+          'watch',
+          'smartwatch'
+        ], fields: [
           _f('type', kind: FieldKind.dropdown),
         ]),
       ]));
@@ -301,7 +338,9 @@ void main() {
 
     test('escapes single-quotes and backslashes in option values', () {
       final out = emit(_ir([
-        _fs('x', categories: ['x'], fields: [
+        _fs('x', categories: [
+          'x'
+        ], fields: [
           _f('h', kind: FieldKind.dropdown, options: ["it's", r'a\b']),
         ]),
       ]));
@@ -311,7 +350,9 @@ void main() {
 
     test('double quotes pass through unescaped in single-quoted strings', () {
       final out = emit(_ir([
-        _fs('x', categories: ['x'], fields: [
+        _fs('x', categories: [
+          'x'
+        ], fields: [
           _f('h', kind: FieldKind.dropdown, options: ['Flat (0-1")']),
         ]),
       ]));
