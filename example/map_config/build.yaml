@@ -1,0 +1,9 @@
+targets:
+  $default:
+    builders:
+      ts_schema_codegen|ts_schema:
+        enabled: true
+        options:
+          source: schema.ts
+          export: CONFIG
+          template: map

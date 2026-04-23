@@ -1,0 +1,10 @@
+name: ts_schema_codegen_map_example
+description: Map-template example — raw config data from TypeScript.
+publish_to: none
+environment:
+  sdk: ^3.4.0
+
+dev_dependencies:
+  build_runner: ^2.4.15
+  ts_schema_codegen:
+    path: ../..

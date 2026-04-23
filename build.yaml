@@ -1,0 +1,30 @@
+# Builder registration for ts_schema_codegen.
+#
+# Consumers opt-in by adding this package as a dev dependency and enabling
+# the builder in their own build.yaml:
+#
+#   targets:
+#     $default:
+#       builders:
+#         ts_schema_codegen|ts_schema:
+#           enabled: true
+#           options:
+#             source: path/to/schema.ts        # required
+#             export: FIELD_SCHEMA              # defaults to "schema"
+#             deno: deno                        # defaults to "deno"
+#             template: field_definitions       # defaults to "map"
+#             field_class_import: package:outfii/core/models/field_definition.dart
+#
+# The builder runs once per package ($package$ trigger) and emits to
+# lib/ts_schema.g.dart.
+
+builders:
+  ts_schema:
+    import: 'package:ts_schema_codegen/builder.dart'
+    builder_factories: [tsSchemaBuilder]
+    build_extensions:
+      $package$:
+        - lib/ts_schema.g.dart
+    auto_apply: none
+    build_to: source
+    required_inputs: []

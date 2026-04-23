@@ -1,0 +1,10 @@
+targets:
+  $default:
+    builders:
+      ts_schema_codegen|ts_schema:
+        enabled: true
+        options:
+          source: schema.ts
+          export: FORM_SCHEMA
+          template: field_definitions
+          field_class_import: package:ts_schema_codegen_example/field_definition.dart
