@@ -3,8 +3,8 @@
 > Keep your schema in TypeScript. Consume it from Dart.
 
 A `build_runner` builder that evaluates a TypeScript module at build time and
-emits typed Dart constants. Your TS stays the source of truth — the Dart side
-breaks the build when TS drifts, instead of silently going stale.
+emits typed Dart constants. Your TS stays the source of truth — the Dart
+side breaks the build when TS drifts, instead of silently going stale.
 
 ```
   schema.ts                         ts_schema.g.dart
@@ -27,17 +27,67 @@ breaks the build when TS drifts, instead of silently going stale.
                   └───────────────────────┘
 ```
 
+## 60-second tour
+
+**1. Your TS source of truth** (`schema.ts`):
+
+```ts
+export const FORMS = {
+  signup: {
+    label: 'Signup',
+    categories: ['signup'],
+    fields: [
+      { id: 'email', type: 'text', label: 'Email', required: true },
+      { id: 'role', type: 'string', label: 'Role',
+        options: ['Engineer', 'Designer', 'Other'] },
+    ],
+  },
+};
+```
+
+**2. Generated Dart** (`lib/ts_schema.g.dart`, after `dart run build_runner build`):
+
+```dart
+// GENERATED — DO NOT EDIT.
+import 'package:your_app/field_definition.dart';
+
+const signupFields = <FieldDefinition>[
+  FieldDefinition(id: 'email', label: 'Email', type: FieldType.text, required: true),
+  FieldDefinition(id: 'role', label: 'Role', type: FieldType.dropdown,
+    options: ['Engineer', 'Designer', 'Other']),
+];
+
+List<FieldDefinition> getFieldsForCategoryGenerated(String category, {String? subcategory}) {
+  switch (category.toLowerCase()) {
+    case 'signup':
+      return signupFields;
+    default:
+      return const <FieldDefinition>[];
+  }
+}
+```
+
+**3. Consumer code** (unchanged on every regeneration):
+
+```dart
+final fields = getFieldsForCategoryGenerated('signup');
+for (final f in fields) {
+  // render f.label as a form input of type f.type, etc.
+}
+```
+
+Change the TS → rerun `build_runner` → Dart compiles against the new shape
+or fails loudly. No hand-sync, no checked-in JSON.
+
 ## Why
 
 A backend and a Flutter app often need to agree on the same shape of data —
 form fields, feature flags, item categories, design tokens. Maintaining two
 copies (one in TS, one hand-translated in Dart) drifts the moment the backend
-changes. Checking in a JSON intermediate works, but it's a manual step and
-PR reviewers can't tell whether the JSON matches the TS source.
+changes. Checking in a JSON intermediate works, but it's a manual step and PR
+reviewers can't tell whether the JSON matches the TS source.
 
 This package makes the Dart side a build-time derivative of the TS source.
-Change the TS → rerun `build_runner` → Dart compiles against the new shape or
-fails loudly.
 
 ## Features
 
@@ -68,47 +118,108 @@ fails loudly.
 
 ## Install
 
-```yaml
-# pubspec.yaml
-dev_dependencies:
-  build_runner: ^2.4.15
-  ts_schema_codegen:
-    git:
-      url: https://github.com/Enraio/ts_schema_codegen
-      ref: main
-```
+### 1. Install Deno
 
-Also needs [Deno](https://deno.land) on `PATH`:
+The builder shells out to Deno to evaluate your TS. v0.1 requires it at build
+time (bundled WASM evaluator is on the roadmap for v0.2).
 
+**macOS / Linux:**
 ```bash
 brew install deno
 # or: curl -fsSL https://deno.land/install.sh | sh
 ```
 
-## Configure
+**Windows:**
+```powershell
+irm https://deno.land/install.ps1 | iex
+```
+
+Verify:
+```bash
+deno --version
+```
+
+### 2. Add the package
+
+```bash
+dart pub add --dev ts_schema_codegen
+dart pub add --dev build_runner
+```
+
+Or in `pubspec.yaml`:
 
 ```yaml
-# build.yaml
+dev_dependencies:
+  build_runner: ^2.4.15
+  ts_schema_codegen: ^0.1.0
+```
+
+### 3. Configure the builder
+
+Create (or append to) `build.yaml` in your package root:
+
+```yaml
 targets:
   $default:
     builders:
       ts_schema_codegen|ts_schema:
         enabled: true
         options:
-          source: path/to/schema.ts         # required, relative to package root
-          export: SCHEMA                     # default: "schema"
-          template: field_definitions        # or "map" (default)
+          source: schema/index.ts                # required — path to TS entry, relative to package root
+          export: FORMS                          # default: "schema"
+          template: field_definitions            # or "map" (default)
           field_class_import: package:your_app/field_definition.dart
-          # deno: deno                       # override if not on PATH
+          # deno: deno                           # override if not on PATH
 ```
 
-## Run
+### 4. Provide a `FieldDefinition` class
+
+The `field_definitions` template emits references to `FieldDefinition` and
+`FieldType`. Define them wherever you like and point `field_class_import` at
+the file:
+
+```dart
+// lib/field_definition.dart
+enum FieldType { dropdown, multiSelect, text, number, slider, toggle }
+
+class FieldDefinition {
+  final String id;
+  final String label;
+  final FieldType type;
+  final List<String>? options;
+  final String? hint;
+  final bool required;
+  final Object? defaultValue;
+
+  const FieldDefinition({
+    required this.id,
+    required this.label,
+    required this.type,
+    this.options,
+    this.hint,
+    this.required = false,
+    this.defaultValue,
+  });
+}
+```
+
+Using the `map` template? Skip this step.
+
+### 5. Generate
 
 ```bash
 dart run build_runner build
 ```
 
-Output at `lib/ts_schema.g.dart`.
+Output lands at `lib/ts_schema.g.dart`. Add it to your `.gitignore` if you
+prefer to regenerate on every checkout, or commit it to shortcut the
+regen-on-pub-get cycle — both approaches are common.
+
+For continuous regen during development:
+
+```bash
+dart run build_runner watch
+```
 
 ## Templates
 
@@ -116,44 +227,118 @@ Output at `lib/ts_schema.g.dart`.
 
 Generic. Emits the export as a nested `const Object? schema = {...}`.
 
+**Input:**
 ```ts
-export const CONFIG = { api: { baseUrl: 'https://...' }, flags: { a: true } };
-```
-
-becomes
-
-```dart
-const Object? schema = <String, Object?>{
-  'api': <String, Object?>{'baseUrl': 'https://...'},
-  'flags': <String, Object?>{'a': true},
+export const CONFIG = {
+  version: '2.3.1',
+  api: { baseUrl: 'https://api.example.com', timeoutMs: 30000 },
+  features: { dark_mode: true, beta: false },
+  locales: ['en', 'es', 'fr'],
 };
 ```
 
-Cast at the call site. Use when the schema doesn't fit a fieldset shape, or
-when you want raw data and will parse it into your own types.
+**Generated output:**
+```dart
+const Object? schema = <String, Object?>{
+  'version': '2.3.1',
+  'api': <String, Object?>{'baseUrl': 'https://api.example.com', 'timeoutMs': 30000},
+  'features': <String, Object?>{'dark_mode': true, 'beta': false},
+  'locales': <Object?>['en', 'es', 'fr'],
+};
+```
+
+**Call site:**
+```dart
+import 'ts_schema.g.dart';
+
+final cfg = schema as Map<String, Object?>;
+final baseUrl = (cfg['api'] as Map)['baseUrl'] as String;
+final darkMode = (cfg['features'] as Map)['dark_mode'] as bool;
+```
+
+Use `map` when your schema doesn't fit a fieldset shape, or when you want raw
+data and will parse it into your own types.
 
 ### `field_definitions`
 
 Opinionated. For schemas shaped like `Record<fieldsetKey, FieldSet>` where
-each `FieldSet` has `categories`, optional `subcategoryRoutes`, and a `fields`
-list of `FieldDef`-shaped objects. Emits:
+each `FieldSet` has `categories`, optional `subcategoryRoutes`, and a
+`fields` list of `FieldDef`-shaped objects.
 
-- one `const <fieldsetKey>Fields = <FieldDefinition>[...]` per fieldset
-- a `getFieldsForCategoryGenerated(category, {subcategory})` routing function
-- optional `common` fieldset appended to every other fieldset
+**Input:**
+```ts
+export const SCHEMA = {
+  common: {
+    label: 'COMMON',
+    categories: [],
+    fields: [
+      { id: 'consent', type: 'string', label: 'I agree',
+        options: ['Yes', 'No'], required: true },
+    ],
+  },
+  ticket: {
+    label: 'TICKET',
+    categories: ['ticket'],
+    subcategoryRoutes: ['bug', 'feature-request'],
+    fields: [
+      { id: 'severity', type: 'string', label: 'Severity',
+        options: ['Low', 'Medium', 'High', 'Critical'] },
+    ],
+  },
+};
+```
 
-You provide the `FieldDefinition` class via `field_class_import`. Recognized
-properties on `FieldDef`: `id`, `type` (`string` → `FieldType.dropdown`,
+**Generated output:** per-fieldset const lists + routing function:
+```dart
+const commonFields = <FieldDefinition>[
+  FieldDefinition(id: 'consent', label: 'I agree', type: FieldType.dropdown,
+    options: ['Yes', 'No'], required: true),
+];
+
+const ticketFields = <FieldDefinition>[
+  FieldDefinition(id: 'severity', label: 'Severity', type: FieldType.dropdown,
+    options: ['Low', 'Medium', 'High', 'Critical']),
+  ...commonFields, // common appended to every non-common fieldset
+];
+
+List<FieldDefinition> getFieldsForCategoryGenerated(String category, {String? subcategory}) {
+  if (subcategory != null) {
+    switch (subcategory.toLowerCase()) {
+      case 'bug':
+      case 'feature-request':
+        return ticketFields;
+    }
+  }
+  switch (category.toLowerCase()) {
+    case 'ticket':
+      return ticketFields;
+    default:
+      return commonFields;
+  }
+}
+```
+
+**Call site:**
+```dart
+import 'ts_schema.g.dart';
+
+// Direct access to a specific fieldset:
+for (final f in ticketFields) { /* render */ }
+
+// Category routing (with optional subcategory override):
+final fields = getFieldsForCategoryGenerated('anything', subcategory: 'bug');
+```
+
+Recognized `FieldDef` properties: `id`, `type` (`string` → `FieldType.dropdown`,
 `array` → `FieldType.multiSelect`, `text` → `FieldType.text`), `label`,
 `options`, `hint`, `required`, `defaultValue`. Extra keys on `FieldDef` are
-tolerated and ignored.
-
-See [`example/`](example/) for a runnable end-to-end sample.
+tolerated and ignored — carry whatever metadata you want, the emitter only
+reads what it knows.
 
 ## Examples
 
-Three runnable examples — open a folder, `dart pub get`, `dart run
-build_runner build`, `dart run lib/main.dart`:
+Three runnable examples under `example/` — open a folder, `dart pub get`,
+`dart run build_runner build`, `dart run lib/main.dart`:
 
 | Directory | Template | What it shows |
 |---|---|---|
@@ -173,12 +358,11 @@ The build fails loudly when:
 
 ## Roadmap
 
-- **v0.2** — bundle a WASM TS evaluator (swc/esbuild) so Deno becomes optional.
-  Drop-in replacement inside `lib/src/deno_runner.dart`; API stays stable.
+- **v0.2** — bundle a WASM TS evaluator (swc/esbuild) so Deno becomes
+  optional. Drop-in replacement inside `lib/src/deno_runner.dart`; API stays
+  stable.
 - **v0.3** — template registry. Users contribute their own emitters without
   forking.
-- **pub.dev publish** once the API has settled and there's an external user
-  running it in anger.
 
 ## Testing
 
@@ -211,4 +395,4 @@ template is a new function + a switch case in `lib/src/builder_impl.dart`.
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).

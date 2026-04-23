@@ -7,4 +7,6 @@ pubspec.lock
 doc/api/
 
 # Example-generated output — regenerated on every `dart run build_runner build`
-example/lib/ts_schema.g.dart
+example/**/ts_schema.g.dart
+example/**/pubspec.lock
+example/**/.dart_tool/

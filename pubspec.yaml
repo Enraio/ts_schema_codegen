@@ -3,7 +3,13 @@ description: >-
   Generate Dart code from a TypeScript data schema. Evaluates the TS entry
   file with Deno at build time and emits typed Dart constants via build_runner.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/Enraio/ts_schema_codegen
+issue_tracker: https://github.com/Enraio/ts_schema_codegen/issues
+topics:
+  - codegen
+  - build-runner
+  - typescript
+
 environment:
   sdk: ^3.4.0
 
