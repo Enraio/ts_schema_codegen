@@ -603,5 +603,142 @@ void main() {
       );
       expect(out, contains("'Flat (0-1\")'"));
     });
+
+    // --- Registry emission (#4, additive) ---
+
+    test('emits GeneratedFieldSet class for the registry', () {
+      final out = emitFieldDefinitions(
+        schema: {
+          'user': {
+            'label': 'USER',
+            'categories': ['user'],
+            'fields': [
+              {'id': 'name', 'type': 'text', 'label': 'Name'},
+            ],
+          },
+        },
+        fieldClassImport: import,
+        tsSourcePath: 's.ts',
+        exportName: 'S',
+      );
+      expect(out, contains('class GeneratedFieldSet {'));
+      expect(out, contains('final String label;'));
+      expect(out, contains('final List<String> categories;'));
+      expect(out, contains('final List<String> subcategoryRoutes;'));
+      expect(out, contains('final List<FieldDefinition> fields;'));
+    });
+
+    test('emits kFieldSets map with one entry per fieldset', () {
+      final out = emitFieldDefinitions(
+        schema: {
+          'common': {
+            'label': 'COMMON',
+            'categories': <String>[],
+            'fields': [
+              {'id': 'consent', 'type': 'string', 'label': 'Consent'},
+            ],
+          },
+          'ticket': {
+            'label': 'TICKET',
+            'categories': ['ticket'],
+            'subcategoryRoutes': ['bug'],
+            'fields': [
+              {'id': 'severity', 'type': 'string', 'label': 'Severity'},
+            ],
+          },
+        },
+        fieldClassImport: import,
+        tsSourcePath: 's.ts',
+        exportName: 'S',
+      );
+      expect(out, contains("const kFieldSets = <String, GeneratedFieldSet>{"));
+      // Each fieldset key is present
+      expect(out, contains("'common': GeneratedFieldSet("));
+      expect(out, contains("'ticket': GeneratedFieldSet("));
+      // Metadata is carried into the registry entry
+      expect(out, contains("label: 'COMMON'"));
+      expect(out, contains("label: 'TICKET'"));
+      expect(out, contains('categories: const <String>[]'));
+      expect(out, contains("categories: ['ticket']"));
+      expect(out, contains("subcategoryRoutes: ['bug']"));
+      // And the entry references the per-fieldset list we already emit.
+      expect(out, contains('fields: commonFields,'));
+      expect(out, contains('fields: ticketFields,'));
+    });
+
+    test('registry omits subcategoryRoutes line when empty', () {
+      final out = emitFieldDefinitions(
+        schema: {
+          'x': {
+            'label': 'X',
+            'categories': ['x'],
+            'fields': [
+              {'id': 'a', 'type': 'text', 'label': 'A'},
+            ],
+          },
+        },
+        fieldClassImport: import,
+        tsSourcePath: 's.ts',
+        exportName: 'S',
+      );
+      // No explicit `subcategoryRoutes:` entry — the generated class's
+      // default (`const []`) takes over.
+      final entryStart = out.indexOf("'x': GeneratedFieldSet(");
+      final entryEnd = out.indexOf('),', entryStart);
+      final entry = out.substring(entryStart, entryEnd);
+      expect(entry, isNot(contains('subcategoryRoutes:')));
+    });
+
+    test('registry escapes special characters in label / routes / categories',
+        () {
+      final out = emitFieldDefinitions(
+        schema: {
+          'it_s': {
+            'label': "it's",
+            'categories': ["a\\b"],
+            'subcategoryRoutes': ["c'd"],
+            'fields': [
+              {'id': 'x', 'type': 'text', 'label': 'X'},
+            ],
+          },
+        },
+        fieldClassImport: import,
+        tsSourcePath: 's.ts',
+        exportName: 'S',
+      );
+      expect(out, contains(r"label: 'it\'s'"));
+      expect(out, contains(r"categories: ['a\\b']"));
+      expect(out, contains(r"subcategoryRoutes: ['c\'d']"));
+    });
+
+    test('registry preserves TS insertion order', () {
+      final out = emitFieldDefinitions(
+        schema: {
+          'zebra': {
+            'label': 'Z',
+            'categories': ['z'],
+            'fields': [
+              {'id': 'a', 'type': 'text', 'label': 'A'},
+            ],
+          },
+          'apple': {
+            'label': 'A',
+            'categories': ['a'],
+            'fields': [
+              {'id': 'b', 'type': 'text', 'label': 'B'},
+            ],
+          },
+        },
+        fieldClassImport: import,
+        tsSourcePath: 's.ts',
+        exportName: 'S',
+      );
+      final registryStart = out.indexOf('const kFieldSets');
+      final zebraIdx = out.indexOf("'zebra': GeneratedFieldSet", registryStart);
+      final appleIdx = out.indexOf("'apple': GeneratedFieldSet", registryStart);
+      expect(zebraIdx, greaterThan(-1));
+      expect(appleIdx, greaterThan(-1));
+      expect(zebraIdx, lessThan(appleIdx));
+    });
   });
 }

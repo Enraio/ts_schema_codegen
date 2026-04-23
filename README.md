@@ -172,7 +172,44 @@ targets:
           # deno: deno                           # override if not on PATH
 ```
 
-### 4. Provide a `FieldDefinition` class
+### 4. Author your schema with `defineSchema` (recommended)
+
+Import the typed helpers from this package and wrap your schema literal.
+You'll get edit-time completion, typo detection, and refactor safety —
+without waiting for `build_runner` to fail.
+
+```ts
+// schema.ts
+import {
+  defineSchema,
+  type FieldSet,
+} from 'https://raw.githubusercontent.com/Enraio/ts_schema_codegen/v0.1.1/types.ts';
+
+export const SCHEMA = defineSchema({
+  signup: {
+    label: 'Signup',
+    categories: ['signup'],
+    fields: [
+      { id: 'email', type: 'text', label: 'Email', required: true },
+      { id: 'role', type: 'string', label: 'Role',
+        options: ['Engineer', 'Designer', 'Other'] },
+    ],
+  },
+});
+```
+
+Tips:
+
+- **Pin to a tag** (`v0.1.1`), not `main` — so future type tightening
+  doesn't silently break your schema.
+- **Prefer this over raw object literals.** Typing `subcategoryRoute`
+  instead of `subcategoryRoutes` without `defineSchema` silently drops
+  the routes; with `defineSchema` it's a TS error at edit time.
+- **Alternative: vendor the types.** If you'd rather not pull from a
+  remote URL, copy the contents of
+  [`types.ts`](types.ts) into your own repo. It's ~40 lines and stable.
+
+### 5. Provide a `FieldDefinition` class
 
 The `field_definitions` template emits references to `FieldDefinition` and
 `FieldType`. Define them wherever you like and point `field_class_import` at
@@ -205,7 +242,7 @@ class FieldDefinition {
 
 Using the `map` template? Skip this step.
 
-### 5. Generate
+### 6. Generate
 
 ```bash
 dart run build_runner build
@@ -335,6 +372,32 @@ Recognized `FieldDef` properties: `id`, `type` (`string` → `FieldType.dropdown
 tolerated and ignored — carry whatever metadata you want, the emitter only
 reads what it knows.
 
+**Bonus: the generated registry.** The `field_definitions` template also
+emits a `const kFieldSets = <String, GeneratedFieldSet>{...}` map alongside
+the routing function. `GeneratedFieldSet` (also emitted) carries `label`,
+`categories`, `subcategoryRoutes`, and `fields` — so at runtime you can
+iterate every fieldset, introspect metadata, or build your own routing
+without regenerating Dart:
+
+```dart
+import 'ts_schema.g.dart';
+
+// List every fieldset key:
+for (final key in kFieldSets.keys) { print(key); }
+
+// Custom routing (e.g. priority-ordered, regex, memoized):
+List<FieldDefinition> priorityFields(String cat) =>
+    kFieldSets.values
+        .firstWhere(
+          (fs) => fs.categories.contains(cat),
+          orElse: () => kFieldSets['common']!,
+        )
+        .fields;
+```
+
+You can keep using `getFieldsForCategoryGenerated` for the default path
+and reach for `kFieldSets` when you need more.
+
 ## Examples
 
 Three runnable examples under `example/` — open a folder, `dart pub get`,
@@ -370,19 +433,20 @@ The build fails loudly when:
 dart test
 ```
 
-45 tests covering:
+55 tests covering:
 
 - `TsSchemaConfig` validation (8) — required/default options, template
   cross-validation, error messages.
-- Emitter output for both templates (24) — primitives, nested maps/lists,
+- Emitter output for both templates (29) — primitives, nested maps/lists,
   mixed-type lists, string escaping, Unicode, deep nesting, FieldType
   mapping, optional-prop forwarding, missing-prop rejection, extra-key
   tolerance, routing (subcategory precedence, category fallback,
-  no-common-fieldset, insertion order).
-- Deno runner integration (5) — real subprocess, happy path + four failure
-  modes (missing file, missing export, non-JSON-serializable export,
-  composed multi-file imports); skipped automatically if Deno isn't on
-  `PATH`.
+  no-common-fieldset, insertion order), **registry emission**
+  (`GeneratedFieldSet` class + `kFieldSets` map with metadata + ordering).
+- Deno runner integration (10) — real subprocess, happy path + four
+  failure modes, **custom JSON replacer** roundtrips for Date / BigInt /
+  Map / Set (both standalone and nested); skipped automatically if Deno
+  isn't on `PATH`.
 - Full pipeline (4) — TS file on disk → DenoRunner → emitter → Dart
   output, for realistic multi-fieldset schemas, the map template, ordering
   preservation, and composition via imports + `Object.fromEntries`.

@@ -122,6 +122,30 @@ String emitFieldDefinitions({
     ..writeln('// Regenerate: dart run build_runner build')
     ..writeln()
     ..writeln("import '$fieldClassImport';")
+    ..writeln()
+    // Emit a self-contained `GeneratedFieldSet` class so the registry
+    // below doesn't force consumers to own a parallel Dart type.
+    ..writeln(
+        '/// Data carrier for the generated fieldset registry (`kFieldSets`).')
+    ..writeln('///')
+    ..writeln('/// Provided by the generator so consumers can reflect on the')
+    ..writeln(
+        '/// schema at runtime — iterate [kFieldSets], build custom routing,')
+    ..writeln(
+        '/// etc. — without depending on a consumer-authored wrapper class.')
+    ..writeln('class GeneratedFieldSet {')
+    ..writeln('  final String label;')
+    ..writeln('  final List<String> categories;')
+    ..writeln('  final List<String> subcategoryRoutes;')
+    ..writeln('  final List<FieldDefinition> fields;')
+    ..writeln()
+    ..writeln('  const GeneratedFieldSet({')
+    ..writeln('    required this.label,')
+    ..writeln('    required this.categories,')
+    ..writeln('    this.subcategoryRoutes = const [],')
+    ..writeln('    required this.fields,')
+    ..writeln('  });')
+    ..writeln('}')
     ..writeln();
 
   // Emit one `const <key>Fields` list per fieldset. When a `common`
@@ -150,6 +174,34 @@ String emitFieldDefinitions({
     buf.writeln('];');
     buf.writeln();
   }
+
+  // Emit the data-driven registry. Keeps the metadata (label, categories,
+  // subcategoryRoutes) discoverable at runtime — a prerequisite for
+  // custom routing policies that consumers build without forking the
+  // emitter.
+  buf.writeln(
+      '/// Registry of every fieldset emitted from the TS schema, keyed');
+  buf.writeln(
+      '/// by fieldset name. Reflectable — iterate [kFieldSets] to build');
+  buf.writeln(
+      '/// custom routing, UIs, or validation without regenerating Dart.');
+  buf.writeln('const kFieldSets = <String, GeneratedFieldSet>{');
+  for (final entry in fieldsets.entries) {
+    final key = entry.key;
+    final label = entry.value['label'];
+    final categories = entry.value['categories'];
+    final subRoutes = entry.value['subcategoryRoutes'];
+    buf.writeln("  '${_escape(key)}': GeneratedFieldSet(");
+    buf.writeln("    label: '${_escape(label?.toString() ?? '')}',");
+    buf.writeln('    categories: ${_stringList(categories)},');
+    if (subRoutes is List && subRoutes.isNotEmpty) {
+      buf.writeln('    subcategoryRoutes: ${_stringList(subRoutes)},');
+    }
+    buf.writeln('    fields: ${key}Fields,');
+    buf.writeln('  ),');
+  }
+  buf.writeln('};');
+  buf.writeln();
 
   // Emit the routing function.
   buf
@@ -266,3 +318,11 @@ String _fieldType(String t) {
 }
 
 String _escape(String s) => s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+
+/// Emit an `Object?` value that is expected to be a List<String> as a
+/// Dart literal like `const ['a', 'b']`. Accepts `null` (emits `const []`).
+String _stringList(Object? value) {
+  if (value is! List || value.isEmpty) return 'const <String>[]';
+  final items = value.map((e) => "'${_escape(e.toString())}'").join(', ');
+  return '[$items]';
+}

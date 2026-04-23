@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.1.1 — 2026-04-24
+
+### Added
+
+- **Typed authoring API** ([#2]). Ship `types.ts` at the repo root with
+  `defineSchema`, `FieldSet`, `FieldDef`, `FieldType`. Consumers import
+  via pinned Deno URL (or vendor the ~40 lines) and wrap their schema in
+  `defineSchema(...)` for IDE completion + edit-time typo detection.
+- **Generated registry** ([#4], additive). The `field_definitions`
+  template now emits a `GeneratedFieldSet` class and a
+  `const kFieldSets = <String, GeneratedFieldSet>{...}` map alongside
+  the existing per-fieldset lists and routing switch. Consumers can
+  iterate `kFieldSets`, inspect metadata, and build custom routing
+  without regenerating. Default routing path unchanged — this is purely
+  additive.
+- **Custom JSON replacer** ([#6]) in `tool/ts_export.ts`. `Date`,
+  `BigInt`, `Map`, and `Set` now cross the Deno → Dart boundary as
+  tagged objects (`{__type: 'Date', iso: '...'}` etc.) instead of
+  silently mangling. Plain templates pass them through; future
+  templates can recognize `__type` markers to materialize as typed
+  Dart values.
+
+### Fixed
+
+- `builder_impl.dart` now parses `.dart_tool/package_config.json` with
+  `jsonDecode` instead of a regex. The regex was brittle to any future
+  field reordering; the typed lookup surfaces clearer errors
+  (distinguishes a corrupt config from a missing dev-dependency).
+
+### Tests
+
+- 45 → 55. New cases: registry emission (5), JSON replacer roundtrips
+  (5). See `test/` for the full list.
+
+[#2]: https://github.com/Enraio/ts_schema_codegen/issues/2
+[#4]: https://github.com/Enraio/ts_schema_codegen/issues/4
+[#6]: https://github.com/Enraio/ts_schema_codegen/issues/6
+
 ## 0.1.0 — 2026-04-23
 
 Initial release.

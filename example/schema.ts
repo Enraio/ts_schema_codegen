@@ -4,8 +4,15 @@
 // The `field_definitions` template will emit one `const <key>Fields` list
 // per section + a `getFieldsForCategoryGenerated(category, {subcategory})`
 // function that routes a form kind to the right fieldset.
+//
+// `defineSchema` is an identity helper — it preserves the concrete shape of
+// the literal while enforcing `Record<string, FieldSet>` at author time, so
+// IDEs autocomplete keys and TypeScript flags typos like
+// `subcategoryRoute`.
 
-export const FORM_SCHEMA = {
+import { defineSchema } from '../types.ts';
+
+export const FORM_SCHEMA = defineSchema({
   // Fields added to every form, regardless of kind.
   common: {
     label: 'COMMON',
@@ -77,4 +84,4 @@ export const FORM_SCHEMA = {
       },
     ],
   },
-} as const;
+});
