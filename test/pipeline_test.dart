@@ -104,8 +104,10 @@ void main() {
       expect(dart, contains('type: FieldType.text')); // text
 
       // common is appended to non-common fieldsets.
-      final userSpreadIdx = dart.indexOf('...commonFields', dart.indexOf('userFields'));
-      final ticketSpreadIdx = dart.indexOf('...commonFields', dart.indexOf('ticketFields'));
+      final userSpreadIdx =
+          dart.indexOf('...commonFields', dart.indexOf('userFields'));
+      final ticketSpreadIdx =
+          dart.indexOf('...commonFields', dart.indexOf('ticketFields'));
       expect(userSpreadIdx, greaterThan(-1));
       expect(ticketSpreadIdx, greaterThan(-1));
 
@@ -262,6 +264,161 @@ void main() {
       expect(dart, contains("id: 'name'"));
       expect(dart, contains("id: 'email'"));
       expect(dart, contains('const userFields = <FieldDefinition>['));
+    }, skip: skip);
+
+    // --- Validation errors (#3) surface with JSON-pointer paths ---
+
+    test('validator flags bad field type with a JSON-pointer path', () async {
+      File(p.join(tmp.path, 'schema.ts')).writeAsStringSync('''
+        export const SCHEMA = {
+          user: {
+            label: 'USER',
+            categories: ['user'],
+            fields: [
+              { id: 'name', type: 'txt', label: 'Name' }, // typo: 'txt' vs 'text'
+            ],
+          },
+        };
+      ''');
+      final runner = DenoRunner(
+        denoCommand: 'deno',
+        exportScriptPath: exportScript,
+        workingDirectory: tmp.path,
+      );
+      await expectLater(
+        runner.evaluate(
+          tsPath: 'schema.ts',
+          exportName: 'SCHEMA',
+          template: 'field_definitions',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('deno exited with code 6'),
+              contains('SCHEMA.user.fields[0].type'),
+              contains("'string' | 'array' | 'text'"),
+              contains("'txt'"),
+            ),
+          ),
+        ),
+      );
+    }, skip: skip);
+
+    test('validator flags missing required FieldSet fields', () async {
+      File(p.join(tmp.path, 'schema.ts')).writeAsStringSync('''
+        export const SCHEMA = {
+          broken: { label: 'B' }, // missing `categories` and `fields`
+        };
+      ''');
+      final runner = DenoRunner(
+        denoCommand: 'deno',
+        exportScriptPath: exportScript,
+        workingDirectory: tmp.path,
+      );
+      await expectLater(
+        runner.evaluate(
+          tsPath: 'schema.ts',
+          exportName: 'SCHEMA',
+          template: 'field_definitions',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('SCHEMA.broken.categories'),
+              contains('SCHEMA.broken.fields'),
+            ),
+          ),
+        ),
+      );
+    }, skip: skip);
+
+    test('validator flags non-string categories entry', () async {
+      File(p.join(tmp.path, 'schema.ts')).writeAsStringSync('''
+        export const SCHEMA = {
+          user: {
+            label: 'USER',
+            categories: ['user', 42, 'member'], // 42 isn't a string
+            fields: [{ id: 'x', type: 'text', label: 'X' }],
+          },
+        };
+      ''');
+      final runner = DenoRunner(
+        denoCommand: 'deno',
+        exportScriptPath: exportScript,
+        workingDirectory: tmp.path,
+      );
+      await expectLater(
+        runner.evaluate(
+          tsPath: 'schema.ts',
+          exportName: 'SCHEMA',
+          template: 'field_definitions',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('SCHEMA.user.categories[1]'),
+          ),
+        ),
+      );
+    }, skip: skip);
+
+    test('validator accepts a well-formed schema (happy path)', () async {
+      File(p.join(tmp.path, 'schema.ts')).writeAsStringSync('''
+        export const SCHEMA = {
+          user: {
+            label: 'USER',
+            categories: ['user'],
+            subcategoryRoutes: ['member'],
+            fields: [
+              { id: 'email', type: 'text', label: 'Email', required: true },
+              { id: 'role', type: 'string', label: 'Role',
+                options: ['admin', 'member'], hint: 'pick one' },
+              { id: 'tags', type: 'array', label: 'Tags' },
+            ],
+          },
+        };
+      ''');
+      final runner = DenoRunner(
+        denoCommand: 'deno',
+        exportScriptPath: exportScript,
+        workingDirectory: tmp.path,
+      );
+      final value = await runner.evaluate(
+        tsPath: 'schema.ts',
+        exportName: 'SCHEMA',
+        template: 'field_definitions',
+      );
+      expect(value, isA<Map>());
+    }, skip: skip);
+
+    test('validator is skipped for map template', () async {
+      // A shape that would fail field_definitions validation must pass
+      // through the map template untouched.
+      File(p.join(tmp.path, 'config.ts')).writeAsStringSync('''
+        export const CONFIG = {
+          version: 42, // not a FieldSet — map template doesn't care
+          flags: { beta: true },
+        };
+      ''');
+      final runner = DenoRunner(
+        denoCommand: 'deno',
+        exportScriptPath: exportScript,
+        workingDirectory: tmp.path,
+      );
+      final value = await runner.evaluate(
+        tsPath: 'config.ts',
+        exportName: 'CONFIG',
+        template: 'map',
+      );
+      expect(value, {
+        'version': 42,
+        'flags': {'beta': true},
+      });
     }, skip: skip);
   });
 }

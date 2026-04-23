@@ -319,10 +319,12 @@ String _fieldType(String t) {
 
 String _escape(String s) => s.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
 
-/// Emit an `Object?` value that is expected to be a List<String> as a
-/// Dart literal like `const ['a', 'b']`. Accepts `null` (emits `const []`).
+/// Emit an `Object?` value that is expected to be a `List<String>` as a
+/// Dart literal. This is only called from inside `const kFieldSets = {...}`,
+/// which is already a const context — so no leading `const` is needed and
+/// emitting one trips the `unnecessary_const` lint.
 String _stringList(Object? value) {
-  if (value is! List || value.isEmpty) return 'const <String>[]';
+  if (value is! List || value.isEmpty) return '<String>[]';
   final items = value.map((e) => "'${_escape(e.toString())}'").join(', ');
   return '[$items]';
 }

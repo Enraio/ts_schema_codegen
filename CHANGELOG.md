@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.1.2 — 2026-04-24
+
+### Added
+
+- **Multi-schema config** ([#5]). `build.yaml` now accepts a `schemas` list
+  so one builder invocation can produce multiple outputs from multiple TS
+  entries. Each entry has its own `source`, `export`, `template`,
+  `field_class_import`, and `output`. The old single-schema shape
+  (top-level `source`/`export`/etc.) is still accepted and defaults
+  output to `lib/ts_schema.g.dart` for backward compat.
+- **Configurable output path** ([#5]). `output:` option per schema.
+  Must start with `lib/` (build_runner constraint) and end with `.dart`.
+  Duplicate outputs across schemas are rejected at config-parse time.
+- **Zod-style boundary validation** ([#3]). For `field_definitions` schemas,
+  the Deno side now walks the export before `JSON.stringify` and emits
+  JSON-pointer errors (`SCHEMA.ticket.fields[2].type: expected 'string' |
+  'array' | 'text', got 'txt'`). Skipped for `map` template since that
+  accepts any JSON-serializable value. Exit code 6 distinguishes
+  validation failures from other Deno errors. No network deps — the
+  validator is ~80 lines of hand-rolled TS.
+- New `example/multi/` runnable example demonstrating the multi-schema
+  config with one `field_definitions` + one `map` entry side by side.
+
+### Changed
+
+- `TsSchemaConfig.schemas: List<SchemaEntry>` replaces the flat
+  `source`/`export`/`template`/... fields. External callers constructing
+  the config programmatically (rare) will need to update; the build.yaml
+  options surface stays backward-compatible.
+- `DenoRunner.evaluate` takes an optional `template` parameter (default
+  `'map'`) forwarded to `tool/ts_export.ts` to drive validation.
+
+### Tests
+
+- 55 → 67. +7 config cases for multi-schema + backward compat, +5
+  validator pipeline cases (field-type typo, missing required keys,
+  non-string in categories, happy path, map-template skip).
+
+[#3]: https://github.com/Enraio/ts_schema_codegen/issues/3
+[#5]: https://github.com/Enraio/ts_schema_codegen/issues/5
+
 ## 0.1.1 — 2026-04-24
 
 ### Added
