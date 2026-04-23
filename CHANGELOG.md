@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.1.3 — 2026-04-24
+
+### Changed (internal)
+
+- **Introduced an IR layer** between the Deno JSON and the emitter ([#7]).
+  Typed Dart classes `SchemaIR` / `FieldSetIR` / `FieldDefIR` + a
+  `FieldKind` enum replace the raw `Object?` input that the emitter used
+  to walk. Parsing (shape validation + normalization) now lives in
+  `parseFieldDefinitionsIR`; the emitter trusts its typed input and
+  focuses on string generation.
+
+  This is a refactor-only release — no consumer-visible behavior change.
+  The `field_definitions` template still emits the same per-fieldset
+  lists + registry + routing switch. Parser errors carry a JSON-pointer
+  `path` (e.g. `SCHEMA.ticket.fields[2].type`) matching what the Deno
+  validator produces, via a new `SchemaShapeError` class.
+
+  Why: `emitter.dart` had shape-checking (`is! Map`, `is! List`) mixed in
+  with string emission, which made adding templates require re-doing
+  validation work each time. The IR split separates concerns, makes
+  emitters unit-testable against hand-built IR fixtures, and sets up a
+  clean extension point for future templates.
+
+- `emitFieldDefinitions` signature: `schema` is now `SchemaIR` instead of
+  `Object?`. The `map` template is unchanged (it takes `Object?` — raw
+  JSON with no shape to enforce). Anyone calling `emitFieldDefinitions`
+  directly will need to `parseFieldDefinitionsIR(raw)` first; users who
+  only go through `build_runner` see no change.
+
+### Tests
+
+- 67 → 75. +15 IR parser cases (`test/ir_test.dart`), emitter tests
+  rewritten to use IR fixtures (same 25 cases, now constructed via typed
+  helpers instead of nested Map literals — ~40% less test boilerplate).
+
+[#7]: https://github.com/Enraio/ts_schema_codegen/issues/7
+
 ## 0.1.2 — 2026-04-24
 
 ### Added

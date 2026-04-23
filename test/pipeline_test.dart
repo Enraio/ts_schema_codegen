@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:ts_schema_codegen/src/deno_runner.dart';
 import 'package:ts_schema_codegen/src/emitter.dart';
+import 'package:ts_schema_codegen/src/ir.dart';
 
 void main() {
   final skip = _commandExists('deno') ? null : 'deno not on PATH';
@@ -77,7 +78,7 @@ void main() {
       );
 
       final dart = emitFieldDefinitions(
-        schema: raw,
+        schema: parseFieldDefinitionsIR(raw),
         fieldClassImport: 'package:fake/field_definition.dart',
         tsSourcePath: 'schema.ts',
         exportName: 'SCHEMA',
@@ -199,7 +200,7 @@ void main() {
       final raw = await runner.evaluate(tsPath: 's.ts', exportName: 'SCHEMA');
 
       final dart = emitFieldDefinitions(
-        schema: raw,
+        schema: parseFieldDefinitionsIR(raw),
         fieldClassImport: 'package:fake/field_definition.dart',
         tsSourcePath: 's.ts',
         exportName: 'SCHEMA',
@@ -252,7 +253,7 @@ void main() {
       );
 
       final dart = emitFieldDefinitions(
-        schema: raw,
+        schema: parseFieldDefinitionsIR(raw),
         fieldClassImport: 'package:fake/field_definition.dart',
         tsSourcePath: 'index.ts',
         exportName: 'SCHEMA',

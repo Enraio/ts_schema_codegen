@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'config.dart';
 import 'deno_runner.dart';
 import 'emitter.dart';
+import 'ir.dart';
 
 /// Builder triggered once per consuming package (`$package$`).
 ///
@@ -82,8 +83,12 @@ class TsSchemaBuilder implements Builder {
   String _emit(Object? schema, SchemaEntry entry) {
     switch (entry.template) {
       case 'field_definitions':
+        // Parse raw JSON into the typed IR first. The parser validates
+        // the shape with JSON-pointer error paths; the emitter trusts
+        // the IR and focuses on string generation.
+        final ir = parseFieldDefinitionsIR(schema, rootPath: entry.export);
         return emitFieldDefinitions(
-          schema: schema,
+          schema: ir,
           fieldClassImport: entry.fieldClassImport!,
           tsSourcePath: entry.source,
           exportName: entry.export,
