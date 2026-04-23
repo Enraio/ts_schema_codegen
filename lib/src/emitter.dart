@@ -18,18 +18,25 @@ import 'ir.dart';
 
 const _header = '// GENERATED — DO NOT EDIT.';
 
-/// Generic template: emit the schema as a nested `Object?`.
+/// Generic template: emit the schema as a nested `Object`.
+///
+/// Emits `const Object schema = ...` when the value is non-null (the common
+/// case) and `const Object? schema = null` only when the evaluated export
+/// is literally `null`. Keeps the analyzer happy
+/// (`unnecessary_nullable_for_final_variable_declarations`) without hiding
+/// the null-at-root case.
 String emitMapTemplate({
   required Object? value,
   required String tsSourcePath,
   required String exportName,
 }) {
+  final type = value == null ? 'Object?' : 'Object';
   final buf = StringBuffer()
     ..writeln(_header)
     ..writeln('// Source: $tsSourcePath (export: $exportName)')
     ..writeln('// Regenerate: dart run build_runner build')
     ..writeln()
-    ..writeln('const Object? schema = ${_literal(value)};')
+    ..writeln('const $type schema = ${_literal(value)};')
     ..writeln();
   return buf.toString();
 }
@@ -141,7 +148,8 @@ String emitFieldDefinitions({
     buf.writeln("    label: '${_escape(fs.label)}',");
     buf.writeln('    categories: ${_stringList(fs.categories)},');
     if (fs.subcategoryRoutes.isNotEmpty) {
-      buf.writeln('    subcategoryRoutes: ${_stringList(fs.subcategoryRoutes)},');
+      buf.writeln(
+          '    subcategoryRoutes: ${_stringList(fs.subcategoryRoutes)},');
     }
     buf.writeln('    fields: ${fs.key}Fields,');
     buf.writeln('  ),');

@@ -4,7 +4,6 @@
 //   dart run lib/main.dart
 
 import 'config.g.dart' as cfg;
-import 'field_definition.dart';
 import 'forms.g.dart' as forms;
 
 void main() {

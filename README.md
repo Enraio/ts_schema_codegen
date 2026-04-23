@@ -262,7 +262,7 @@ dart run build_runner watch
 
 ### `map`
 
-Generic. Emits the export as a nested `const Object? schema = {...}`.
+Generic. Emits the export as a nested `const Object schema = {...}` (or `const Object? schema = null` when the TS export is literally null).
 
 **Input:**
 ```ts
@@ -276,7 +276,7 @@ export const CONFIG = {
 
 **Generated output:**
 ```dart
-const Object? schema = <String, Object?>{
+const Object schema = <String, Object?>{
   'version': '2.3.1',
   'api': <String, Object?>{'baseUrl': 'https://api.example.com', 'timeoutMs': 30000},
   'features': <String, Object?>{'dark_mode': true, 'beta': false},

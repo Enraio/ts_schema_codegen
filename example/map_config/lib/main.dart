@@ -5,7 +5,8 @@
 import 'ts_schema.g.dart';
 
 void main() {
-  // The `map` template emits `const Object? schema`. Cast once at the
+  // The `map` template emits `const Object schema` (or `Object?` if the
+  // TS export is literally null). Cast once at the
   // boundary; in a real app you'd wrap this in a typed config class.
   final cfg = schema as Map<String, Object?>;
 

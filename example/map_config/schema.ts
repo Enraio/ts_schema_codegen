@@ -1,5 +1,5 @@
 // A generic application config with feature flags. The `map` template
-// emits this as a nested `const Object? schema` — nothing typed, just data.
+// emits this as a nested `const Object schema` — nothing typed, just data.
 
 export const CONFIG = {
   version: '2.3.1',
