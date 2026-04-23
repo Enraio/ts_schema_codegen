@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:build/build.dart';
@@ -92,9 +93,10 @@ class TsSchemaBuilder implements Builder {
     // for the package's `tool/ts_export.ts`. Since build_runner resolves
     // package URIs for us, we rely on `package:ts_schema_codegen` pointing
     // into the right place on disk.
-    final uri = Uri.parse('package:ts_schema_codegen/builder.dart');
-    // Isolate.resolvePackageUri is async — we do it synchronously via the
-    // package_config file in the consumer's .dart_tool directory.
+    // Resolve our package's on-disk root via the consumer's package_config.
+    // `Isolate.resolvePackageUri` is async; build_runner's Builder.build is
+    // already async, but the resolution here is cheap and the sync path
+    // (parsing the checked-in config file) is less fragile across Dart SDKs.
     final config = File(
       p.join(Directory.current.path, '.dart_tool', 'package_config.json'),
     );
@@ -104,36 +106,47 @@ class TsSchemaBuilder implements Builder {
         'Run `dart pub get` first.',
       );
     }
-    final raw = config.readAsStringSync();
-    // Quick-and-dirty lookup — full JSON parse would be cleaner but pulls a
-    // dep; a regex is enough for MVP and surface errors clearly on miss.
-    final match = RegExp(
-      r'"name"\s*:\s*"ts_schema_codegen"[^}]*"rootUri"\s*:\s*"([^"]+)"',
-    ).firstMatch(raw);
-    if (match == null) {
+
+    final decoded =
+        jsonDecode(config.readAsStringSync()) as Map<String, Object?>;
+    final packages = decoded['packages'];
+    if (packages is! List) {
+      throw StateError(
+        'ts_schema_codegen: package_config.json has no "packages" list. '
+        'This looks like a corrupt pub cache; re-run `dart pub get`.',
+      );
+    }
+    final entry =
+        packages.cast<Object?>().whereType<Map<String, Object?>>().firstWhere(
+              (p) => p['name'] == 'ts_schema_codegen',
+              orElse: () => const <String, Object?>{},
+            );
+    final rawRoot = entry['rootUri'];
+    if (rawRoot is! String) {
       throw StateError(
         'ts_schema_codegen: package not found in .dart_tool/package_config.json. '
         'Make sure `ts_schema_codegen` is in dev_dependencies.',
       );
     }
-    var rootUri = match.group(1)!;
-    // rootUri is typically "../../packages/ts_schema_codegen" — resolve
-    // relative to the .dart_tool/ directory.
-    final base = p.join(Directory.current.path, '.dart_tool');
-    if (rootUri.startsWith('file://')) {
-      rootUri = Uri.parse(rootUri).toFilePath();
+
+    // rootUri is relative to the .dart_tool/ directory (per dart-lang spec),
+    // typically something like "../../packages/ts_schema_codegen" or a
+    // "file:///absolute/path" when pub fetched it from a path dep.
+    String rootPath;
+    if (rawRoot.startsWith('file://')) {
+      rootPath = Uri.parse(rawRoot).toFilePath();
     } else {
-      rootUri = p.normalize(p.join(base, rootUri));
+      final base = p.join(Directory.current.path, '.dart_tool');
+      rootPath = p.normalize(p.join(base, rawRoot));
     }
-    final scriptPath = p.join(rootUri, 'tool', 'ts_export.ts');
+
+    final scriptPath = p.join(rootPath, 'tool', 'ts_export.ts');
     if (!File(scriptPath).existsSync()) {
       throw StateError(
         'ts_schema_codegen: bundled evaluator not found at $scriptPath. '
         'Reinstall the package (pub cache repair).',
       );
     }
-    // Silence the unused uri warning.
-    uri.toString();
     return scriptPath;
   }
 
