@@ -1,7 +1,7 @@
 # example/map_config — `map` template
 
 The lightest-weight template. Emits the TS export as a nested
-`const Object? schema` — just data, no opinions about structure. Use this
+`const Object schema` (non-nullable) — just data, no opinions about structure. Use this
 when your schema doesn't fit the fieldset shape, or when you want to parse
 it into your own types at runtime.
 
@@ -31,7 +31,7 @@ Feature flags:
 `lib/ts_schema.g.dart` contains:
 
 ```dart
-const Object? schema = <String, Object?>{
+const Object schema = <String, Object?>{
   'version': '2.3.1',
   'api': <String, Object?>{
     'baseUrl': 'https://api.example.com',
